@@ -234,7 +234,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     }
     
     /// Focus on MU.editor, which triggers a focus event and sets hasFocus
-    func focus(handler: (()->Void)? = nil) {
+    public func focus(handler: (()->Void)? = nil) {
         evaluateJavaScript("MU.focus()") { result, error in
             if let error {
                 Logger.webview.error("focus error: \(error)")
