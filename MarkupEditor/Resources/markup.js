@@ -19721,13 +19721,13 @@
    * Toggle the selection to/from bold (<STRONG>)
    */
   function toggleBold() {
-      _toggleFormat('B');
+      _toggleFormat('STRONG');
   }
   /**
    * Toggle the selection to/from italic (<EM>)
    */
   function toggleItalic() {
-      _toggleFormat('I');
+      _toggleFormat('EM');
   }
   /**
    * Toggle the selection to/from underline (<U>)
