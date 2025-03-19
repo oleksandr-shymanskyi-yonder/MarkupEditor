@@ -134,6 +134,14 @@ public protocol MarkupDelegate {
     /// The button's id and its rectangle position is returned.
     func markupButtonClicked(_ view: MarkupWKWebView, id: String, rect: CGRect)
     
+    /// The `view` has activated "search mode" where Enter/Shift+Enter is interpreted as searchForward/searchBackward.
+    /// The toolbar really should be disabled, because no editing should take place in search mode.
+    func markupActivateSearch(_ view: MarkupWKWebView)
+    
+    /// The `view` has deactivated "search mode" where Enter/Shift+Enter is interpreted as searchForward/searchBackward.
+    /// The toolbar really should be re-enabled.
+    func markupDeactivateSearch(_ view: MarkupWKWebView)
+    
 }
 
 extension MarkupDelegate {
@@ -304,8 +312,7 @@ extension MarkupDelegate {
     /// By default, the insert link popover is kicked off in the MarkupWKWebView using the LinkViewController.
     ///
     /// By overriding the `markupShowLinkPopover` method you can plug-in
-    /// your own application-specific view. When doing so, be careful to `startModalInput` at the beginning
-    /// so that focus is returned properly when done. See `showLinkPopover`  for an example.
+    /// your own application-specific view. See `showLinkPopover`  for an example.
     public func markupShowLinkPopover(_ view: MarkupWKWebView) {
         view.showLinkPopover()
     }
@@ -313,8 +320,7 @@ extension MarkupDelegate {
     /// By default, the insert image popover is kicked off in the MarkupWKWebView using the ImageViewController.
     ///
     /// By overriding the `markupShowImagePopover` method you can plug-in
-    /// your own application-specific view. When doing so, be careful to `startModalInput` at the beginning
-    /// so that focus is returned properly when done. See `showImagePopover` for an example.
+    /// your own application-specific view. See `showImagePopover` for an example.
     public func markupShowImagePopover(_ view: MarkupWKWebView) {
         view.showImagePopover()
     }
@@ -324,8 +330,7 @@ extension MarkupDelegate {
     /// `MarkupEditor.showInsertPopover.type` changes to `.table`.
     ///
     /// By overriding the `markupShowTablePopover` method you can plug-in
-    /// your own application-specific view. When doing so, be careful to `startModalInput` at the beginning
-    /// so that focus is returned properly when done. See`showTablePopover` for an example which will
+    /// your own application-specific view. See`showTablePopover` for an example which will
     /// lead to the InsertToolbar.
     public func markupShowTablePopover(_ view: MarkupWKWebView) {
         view.showTablePopover()
@@ -333,6 +338,18 @@ extension MarkupDelegate {
     
     public func markupButtonClicked(_ view: MarkupWKWebView, id: String, rect: CGRect) {
         Logger.webview.warning("You should handle markupButtonClicked in your MarkupDelegate.")
+    }
+    
+    /// The `view` has activated "search mode" where Enter/Shift+Enter is interpreted as searchForward/searchBackward.
+    /// The toolbar really should be disabled, because no editing should take place in search mode.
+    public func markupActivateSearch(_ view: MarkupWKWebView) {
+        MarkupEditor.searchActive.value = true
+    }
+    
+    /// The `view` has deactivated "search mode" where Enter/Shift+Enter is interpreted as searchForward/searchBackward.
+    /// The toolbar really should be re-enabled.
+    public func markupDeactivateSearch(_ view: MarkupWKWebView) {
+        MarkupEditor.searchActive.value = false
     }
     
 }
