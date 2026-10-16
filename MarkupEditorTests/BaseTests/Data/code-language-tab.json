@@ -1,0 +1,25 @@
+{
+    "description": "codeLanguageTabInfo: label reported for the code_block at the selection.",
+    "tests": [
+        {
+            "description": "reports a lowercased label for a code_block with a language set",
+            "html": "<pre><code class=\"language-swift\">let x = 1</code></pre>",
+            "expectedLabel": "Language: swift"
+        },
+        {
+            "description": "lowercases the whole name, not just the first character",
+            "html": "<pre><code class=\"language-weirdLanguage\">x</code></pre>",
+            "expectedLabel": "Language: weirdlanguage"
+        },
+        {
+            "description": "reports \"Language: none\" for a code_block with no language",
+            "html": "<pre><code>let x = 1</code></pre>",
+            "expectedLabel": "Language: none"
+        },
+        {
+            "description": "returns null when the selection is not in a code_block",
+            "html": "<p>Just a paragraph</p>",
+            "expectedLabel": null
+        }
+    ]
+}

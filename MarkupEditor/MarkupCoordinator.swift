@@ -66,13 +66,6 @@ public class MarkupCoordinator: NSObject, WKScriptMessageHandler {
             return
         }
         switch messageBody {
-        case "ready":
-            //Logger.coordinator.debug("ready")
-            // When the root files are properly loaded, we can load user-supplied css and js.
-            // Afterward, the "loadedUserFiles" callback will be invoked. Without the separate
-            // callback to "loadedUserFiles", we can end up with the functions defined by user
-            // scripts to not be defined when invoked from the MarkupDelegate.markupLoaded method.
-            webView.loadUserFiles()
         case "loadedUserFiles":
             //Logger.coordinator.debug("loadedUserFiles")
             // After the user css and js are loaded, we set the top-level "editor" attributes,
@@ -170,6 +163,23 @@ public class MarkupCoordinator: NSObject, WKScriptMessageHandler {
             let info = messageData["info"] as? String
             let alert = (messageData["alert"] as? Bool) ?? true
             markupDelegate?.markupError(code: code, message: message, info: info, alert: alert)
+        case "selectImage":
+            markupDelegate?.markupSelectImage(webView)
+        case "insertLink":
+            // For MacOS, if `insertLink` is true and a delegate is defined in the actual webview (not the MarkupDelegate),
+            // then we get this callback so we can invoke a native dialog rather than the one that is part of
+            // markupeditor-base. Those dialogs all work fine, but they don't look native.
+            markupDelegate?.markupInsertLink(webView)
+        case "insertImage":
+            // For MacOS, if `insertImage` is true and a delegate is defined in the actual webview (not the MarkupDelegate),
+            // then we get this callback so we can invoke a native dialog rather than the one that is part of
+            // markupeditor-base. Those dialogs all work fine, but they don't look native.
+            markupDelegate?.markupInsertImage(webView)
+        case "insertTable":
+            // For MacOS, if `insertTable` is true and a delegate is defined in the actual webview (not the MarkupDelegate),
+            // then we get this callback so we can invoke a native dialog rather than the one that is part of
+            // markupeditor-base. Those dialogs all work fine, but they don't look native.
+            markupDelegate?.markupInsertTable(webView)
         case "copyImage":
             guard
                 let src = messageData["src"] as? String,
@@ -230,6 +240,9 @@ public class MarkupCoordinator: NSObject, WKScriptMessageHandler {
                 return
             }
             markupDelegate?.markupButtonClicked(webView, id: id, rect: rect)
+        case "markupPluginsDidLoad":
+            let plugins = (messageData["plugins"] as? [[String: String]]) ?? []
+            markupDelegate?.markupPluginsDidLoad(webView, plugins: plugins)
         default:
             Logger.coordinator.error("Unknown message of type \(messageType): \(messageData).")
         }

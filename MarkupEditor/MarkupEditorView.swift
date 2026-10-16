@@ -33,8 +33,10 @@ public struct MarkupEditorView: View, MarkupDelegate {
     public var placeholder: String?
     
     public var body: some View {
+        #if !os(macOS)
         VStack(spacing: 0) {
             if MarkupEditor.toolbarLocation == .top {
+                Spacer()    // Liquid Glass introduced some fuzzing we now have to avoid at the top?
                 MarkupToolbar(markupDelegate: markupDelegate).makeManaged()
                 Divider()
             }
@@ -44,6 +46,9 @@ public struct MarkupEditorView: View, MarkupDelegate {
                 MarkupToolbar(markupDelegate: markupDelegate).makeManaged()
             }
         }
+        #else
+            MarkupWKWebViewRepresentable(markupDelegate: markupDelegate, wkNavigationDelegate: wkNavigationDelegate, wkUIDelegate: wkUIDelegate, userScripts: userScripts, configuration: markupConfiguration, html: html, placeholder: placeholder, selectAfterLoad: selectAfterLoad, resourcesUrl: resourcesUrl, id: id)
+        #endif
     }
     
     public init(

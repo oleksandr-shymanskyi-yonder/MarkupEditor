@@ -6,14 +6,24 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import MarkupEditor
 
 /// Identical to the DemoContentView, except also demonstrating the use of custom.js and custom.css
 /// to customize style and add a user script that returns the word count of the document.
 struct CustomContentView: View {
+    
+    var compatibleSystemGray5: Color {
+        #if os(macOS)
+        return Color(nsColor: NSColor.systemGray)
+        #else
+        // This is for iOS, iPadOS, tvOS
+        return Color(uiColor: UIColor.systemGray5)
+        #endif
+    }
 
     @ObservedObject var selectImage = MarkupEditor.selectImage
-    @State private var rawText = NSAttributedString(string: "")
+    @State private var rawText = ""
     @State private var documentPickerShowing: Bool = false
     @State private var rawShowing: Bool = false
     @State private var demoHtml: String
@@ -34,17 +44,34 @@ struct CustomContentView: View {
                         Spacer()
                         Text("Document HTML")
                         Spacer()
-                    }.background(Color(UIColor.systemGray5))
-                    TextView(text: $rawText, isEditable: false)
-                        .font(Font.system(size: StyleContext.P.fontSize))
-                        .padding([.top, .bottom, .leading, .trailing], 8)
+                    }.background(compatibleSystemGray5)
+                    ScrollView {
+                        Text(rawText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .font(Font.system(size: StyleContext.P.fontSize))
+                            .padding([.top, .bottom, .leading, .trailing], 8)
+                    }
                 }
             }
         }
-        .pick(isPresented: $documentPickerShowing, documentTypes: [.html], onPicked: openExistingDocument(url:), onCancel: nil)
-        .pick(isPresented: $selectImage.value, documentTypes: MarkupEditor.supportedImageTypes, onPicked: imageSelected(url:), onCancel: nil)
+        .fileImporter(isPresented: $documentPickerShowing, allowedContentTypes: [.html], allowsMultipleSelection: false) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                openExistingDocument(url: url)
+            }
+        }
+        .fileImporter(isPresented: $selectImage.value, allowedContentTypes: MarkupEditor.supportedImageTypes, allowsMultipleSelection: false) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                imageSelected(url: url)
+            }
+        }
+        #if !os(macOS)
         // If we want actions in the leftToolbar to cause this view to update, then we need to set it up in onAppear, not init
         .onAppear { MarkupEditor.leftToolbar = AnyView(FileToolbar(fileToolbarDelegate: self)) }
+        #endif
         .onDisappear { MarkupEditor.selectedWebView = nil }
     }
     
@@ -66,18 +93,10 @@ struct CustomContentView: View {
     
     private func setRawText(_ handler: (()->Void)? = nil) {
         MarkupEditor.selectedWebView?.getHtml { html in
-            rawText = attributedString(from: html ?? "")
+            rawText = html ?? ""
             MarkupEditor.selectedWebView?.wordcount { count in wordCount = count ?? 0 }
             handler?()
         }
-    }
-    
-    private func attributedString(from string: String) -> NSAttributedString {
-        // Return a monospaced attributed string for the rawText that is expecting to be a good dark/light mode citizen
-        var attributes = [NSAttributedString.Key: AnyObject]()
-        attributes[.foregroundColor] = UIColor.label
-        attributes[.font] = UIFont.monospacedSystemFont(ofSize: StyleContext.P.fontSize, weight: .regular)
-        return NSAttributedString(string: string, attributes: attributes)
     }
     
     private func openExistingDocument(url: URL) {
@@ -103,6 +122,14 @@ extension CustomContentView: MarkupDelegate {
     func markupInput(_ view: MarkupWKWebView) {
         // This is way too heavyweight, but it suits the purposes of the demo
         setRawText()
+    }
+    
+    /// In the MacOS version, which uses the markupeditor-base toolbar, pressing the Select... button in the insert
+    /// image dialog calls back to the messageHandler (i.e., the MarkupCoordinator) with `selectImage`, which
+    /// in turn invokes the delegate's `markupSelectImage` method. We trigger the dialog by toggling the
+    /// value of   selectImage .
+    func markupSelectImage(_ view: MarkupWKWebView?) {
+        selectImage.value.toggle()
     }
     
     /// Callback received after a local image has been added to the document.

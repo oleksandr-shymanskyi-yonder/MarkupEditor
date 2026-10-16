@@ -25,9 +25,13 @@ public struct MarkupEditor {
         "spellcheck" : "false",
         "autocorrect" : "true"
     ]
+    #if canImport(UIKit)
     public static let markupMenu = MarkupMenu()
+    #endif
     public static let toolbarContents = ToolbarContents.shared
+    #if canImport(UIKit)
     public static let toolbarStyle = ToolbarStyle()
+    #endif
     public static var toolbarLocation = ToolbarLocation.automatic
     public static var leftToolbar: AnyView? {
         didSet {
@@ -49,23 +53,27 @@ public struct MarkupEditor {
     public static let selectImage = SelectImage()
     public static let showInsertPopover = ShowInsertPopover()
     public static let supportedImageTypes: [UTType] = [.image, .movie]
+    #if canImport(UIKit)
     public static var style: ToolbarStyle.Style = .labeled {
         didSet {
             toolbarStyle.style = style
         }
     }
+    #endif
     public static var allowLocalImages: Bool = false
     /// Set to true to allow the MarkupWKWebView to be inspectable from the Safari Development
     /// menu in iOS/macCatalyst 16.4 or higher. Default is false to be consistent with the WKWebView
     /// default.
     public static var isInspectable: Bool = false
-    
+
+    #if canImport(UIKit)
     public static func initMenu(with builder: UIMenuBuilder) {
         markupMenu.initMenu(with: builder)
     }
+    #endif
     
     /// Enum to identify search direction
-    public enum FindDirection {
+    public enum FindDirection: Sendable {
         case forward
         case backward
     }
@@ -91,6 +99,17 @@ public struct MarkupEditor {
         case none
     }
 
+    /// Enum to identify text justification for the column containing the selection in a table.
+    ///
+    /// Used by MarkupWKWebView. Case "left" clears alignment entirely rather than setting an
+    /// explicit value, matching justifyColumnCommand's own "left" alias in markup.js -- an
+    /// unaligned GFM table column has no delimiter-row marker at all, not an implicit left.
+    public enum TableAlign: String {
+        case left
+        case center
+        case right
+    }
+
     /// Emum used to control the toolbar location when using the MarkupEditorView and MarkupEditorUIView
     @MainActor
     public enum ToolbarLocation {
@@ -98,9 +117,10 @@ public struct MarkupEditor {
         case bottom
         case keyboard
         case none
-        
+
         /// Always return .top, but logic left here in case it needs more specialization later
         static var automatic: ToolbarLocation {
+            #if canImport(UIKit)
             switch UIDevice.current.userInterfaceIdiom {
             case .mac, .pad:
                 return .top
@@ -109,13 +129,17 @@ public struct MarkupEditor {
             default:
                 return .top
             }
+            #else
+            return .top
+            #endif
         }
     }
-    
-    @MainActor
+
+    #if canImport(UIKit)
     public static func userInterfaceIdiom(is idiom: UIUserInterfaceIdiom) -> Bool {
         UIDevice.current.userInterfaceIdiom == idiom
     }
+    #endif
 
 }
 
@@ -147,7 +171,7 @@ public class SelectImage: ObservableObject {
 }
 
 /// The observable object containing the Bool that tells us whether the "search mode" is active,
-/// where Enter/Shift+Enter are intepreted as searchForward/searchBackward. If so, then generally 
+/// where Enter/Shift+Enter are intepreted as searchForward/searchBackward. If so, then generally
 /// the MarkupToolbar should be disabled.
 public class SearchActive: ObservableObject {
     @Published public var value: Bool

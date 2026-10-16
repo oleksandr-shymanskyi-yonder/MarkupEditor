@@ -1,10 +1,11 @@
 <p align="center">
     <img src="https://github.com/stevengharris/MarkupEditor/actions/workflows/swift.yml/badge.svg">
     <img src="https://img.shields.io/badge/Swift-5.7+-blue.svg">
-    <img src="https://img.shields.io/badge/iOS-15+-blue.svg" alt="iOS 14.5+">
-    <img src="https://img.shields.io/badge/MacCatalyst-15+-blue" alt="MacCatalyst 14.5+">
-    <a href="https://twitter.com/stevengharris">
-        <img src="https://img.shields.io/badge/Contact-@stevengharris-lightgrey.svg?style=flat" alt="Twitter: @stevengharris">
+    <img src="https://img.shields.io/badge/iOS-17+-blue.svg" alt="iOS 17+">
+    <img src="https://img.shields.io/badge/MacCatalyst-17+-blue" alt="MacCatalyst 17+">
+    <img src="https://img.shields.io/badge/MacOS-14+-blue" alt="MacOS 14+">
+    <a href="https://mastodon.social/@stevengharris">
+        <img src="https://img.shields.io/badge/Contact-@stevengharris-lightgrey.svg?style=flat" alt="Mastodon: @stevengharris">
     </a>
 </p>
 
@@ -22,7 +23,7 @@ Jealous of those JavaScript coders with their WYSIWYG text editors, but unwillin
 
 ## MarkupEditor Goals and Non-Goals
 
-I am working on a larger project that requires embedded support for "rich text" editing. WYSIWYG editing is a must-have requirement for me. I could have forced my developer-users to use Markdown, but I find it to be annoying both to write and to look at while writing. Who wants to have to mentally filter all that cruft on the screen? Sure, it's a lot better than editing raw HTML; but come on, this is the 21st century. Having to deal with an editing experience where you use some kind of "preview mode" to make sure that what you are writing will be presented like you expect feels like CI/CD for writing. 
+I work on several projects that require embedded support for "rich text" editing. WYSIWYG editing is a must-have requirement for me. I could have forced my developer-users to use Markdown, but I find it to be annoying both to write and to look at while writing. Who wants to have to mentally filter all that cruft on the screen? Sure, it's a lot better than editing raw HTML; but come on, this is the 21st century. Having to deal with an editing experience where you use some kind of "preview mode" to make sure that what you are writing will be presented like you expect feels like CI/CD for writing. 
 
 Still, I wanted an editing experience that didn't get in the way. I wanted something with the feature-simplicity of Markdown, but presented in a clean, what-you-see-is-what-you-get manner that supported the basics people expect:
 
@@ -63,17 +64,19 @@ Clone this repository and build the MarkupFramework target in Xcode. Add the Mar
 
 ## Using the MarkupEditor
 
-Behind the scenes, the MarkupEditor interacts with an HTML document (created in `markup.html`) that uses a single `contentEditable` DIV element to modify the DOM of the document you are editing. It uses a subclass of `WKWebView` - the `MarkupWKWebView` - to make calls to the JavaScript in `markup.js`. In turn, the JavaScript calls back into Swift to let the Swift side know that changes occurred. The callbacks on the Swift side are handled by the `MarkupCoordinator`. The `MarkupCoordinator` is the `WKScriptMessageHandler` for a single  `MarkupWKWebView` and receives all the JavaScript callbacks in `userContentController(_:didReceive:)`.  The `MarkupCoordinator` in turn notifies your `MarkupDelegate` of changes. See `MarkupDelegate.swift` for the full protocol and default implementations. 
+Behind the scenes, the MarkupEditor interacts with an HTML document (created in `markup.html`) that uses a single `contentEditable` DIV element to modify the DOM of the document you are editing. It uses a subclass of `WKWebView` - the `MarkupWKWebView` - to make calls to the JavaScript in `markup-editor.js`. In turn, the JavaScript calls back into Swift to let the Swift side know that changes occurred. The callbacks on the Swift side are handled by the `MarkupCoordinator`. The `MarkupCoordinator` is the `WKScriptMessageHandler` for a single  `MarkupWKWebView` and receives all the JavaScript callbacks in `userContentController(_:didReceive:)`.  The `MarkupCoordinator` in turn notifies your `MarkupDelegate` of changes. See `MarkupDelegate.swift` for the full protocol and default implementations. 
 
-That sounds complicated, but it is mostly implementation details you should not need to worry about. Your app will typically use either the `MarkupEditorView` for SwiftUI or the `MarkupEditorUIView` for UIKit. The `MarkupDelegate` protocol is the key mechanism for your app to find out about changes as the user interacts with the document. You will typically let your main SwiftUI ContentView or your UIKit UIViewController be your `MarkupDelegate`. You can customize the behavior of the MarkupEditor using the `MarkupEditor` struct (e.g., `MarkupEditor.toolbarStyle = .compact`).
+That sounds complicated, but it is mostly implementation details you should not need to worry about. Your app will typically use either the `MarkupEditorView` for SwiftUI on MacOS and Mac Catalyst, or the `MarkupEditorUIView` for UIKit. The `MarkupDelegate` protocol is the key mechanism for your app to find out about changes as the user interacts with the document. You will typically let your main SwiftUI ContentView or your UIKit UIViewController be your `MarkupDelegate`. You can customize the behavior of the MarkupEditor using the `MarkupEditor` struct (e.g., `MarkupEditor.toolbarStyle = .compact`).
 
-The `MarkupToolbar` is a convenient, pre-built UI to invoke changes to the document by interacting with the `MarkupWKWebView`. You don't need to use it, but if you do, then the easiest way to set it up is just to let the `MarkupEditorView` or `MarkupEditorUIView` handle it automatically. Your application may require something different with the toolbar than what the `MarkupEditorView` or `MarkupEditorUIView` provides. For example, you might have multiple `MarkupEditorViews` that need to share a single `MarkupToolbar`. In this case, you should specify `MarkupEditor.toolbarPosition = .none`. Then, for SwiftUI, use the `MarkupEditorView` together with the `MarkupToolbar` as standard SwiftUI views, identifying the `MarkupEditor.selectedWebView` by responding to the `markupTookFocus(_:)` callback in your `MarkupDelegate`. For UIKit, you can use the `MarkupEditorUIView` and `MarkupToolbarUIView`. See the code in the `MarkupEditorView` or `MarkupEditorUIView` for details.
+For iOS and Mac Catalyst, the `MarkupToolbar` is a convenient, pre-built UI to invoke changes to the document by interacting with the `MarkupWKWebView`. You don't need to use it, but if you do, then the easiest way to set it up is just to let the `MarkupEditorView` or `MarkupEditorUIView` handle it automatically. Your application may require something different with the toolbar than what the `MarkupEditorView` or `MarkupEditorUIView` provides. For example, you might have multiple `MarkupEditorViews` that need to share a single `MarkupToolbar`. In this case, you should specify `MarkupEditor.toolbarPosition = .none`. Then, for SwiftUI, use the `MarkupEditorView` together with the `MarkupToolbar` as standard SwiftUI views, identifying the `MarkupEditor.selectedWebView` by responding to the `markupTookFocus(_:)` callback in your `MarkupDelegate`. For UIKit, you can use the `MarkupEditorUIView` and `MarkupToolbarUIView`. See the code in the `MarkupEditorView` or `MarkupEditorUIView` for details.
 
-To avoid spurious logging from the underlying `WKWebView` in the Xcode console, you can set `OS_ACTIVITY_MODE` to `disable` in the Run properties for your target. However, this has the side-effect of removing OSLog messages from the MarkupEditor from showing up, too, and is probably not a good idea in general.
+For MacOS, the toolbar sits at the top of the MarkupWKWebView using the HTML/CSS version supplied in the [markupeditor-base project](https://github.com/stevengharris/markupeditor-base). The configurability of this toolbar is significantly better than the SwiftUI toolbar (as documented in the [Developer's Guide](https://stevengharris.github.io/markupeditor-base/guide/index.html) for the markupeditor-base project).
+
+To avoid spurious logging from the underlying `WKWebView` in the Xcode console, you can set `OS_ACTIVITY_MODE` to `disable` in the Run properties for your target. However, this has the side-effect of removing OSLog messages from the MarkupEditor from showing up, too, and is probably not a good idea in general. It's useful for tests, where the huge number of Apple messages for out-of-the-box WebView apps makes reading logs just to see if a test passed or failed very difficult.
 
 ### SwiftUI Usage
 
-In the simplest case, just use the `MarkupEditorView` like you would any other SwiftUI view. By default, on all but phone devices, it will place a `MarkupToolbar` above a `UIViewRepresentable` that contains the `MarkupWKWebView`, which is where you do your editing. On phone devices, it will make the toolbar the `inputAccessoryView` for the `MarkupWKWebView`, giving you access to the toolbar when the keyboard shows up. Your ContentView can act as the `MarkupDelegate`, which is almost certainly what you want to do in all but the simplest applications. The `MarkupEditorView` acts as the `MarkupDelegate` if you don't specify one yourself.
+In the simplest case, just use the `MarkupEditorView` like you would any other SwiftUI view. By default, on all but phone devices, it will place a toolbar above the `MarkupWKWebView`, which is where you do your editing. On phone devices, it will make the toolbar the `inputAccessoryView` for the `MarkupWKWebView`, giving you access to the toolbar when the keyboard shows up. Your ContentView can act as the `MarkupDelegate`, which is almost certainly what you want to do in all but the simplest applications. The `MarkupEditorView` acts as the `MarkupDelegate` if you don't specify one yourself.
 
 ```
 import SwiftUI
@@ -115,7 +118,7 @@ class SimplestViewController: UIViewController {
 
 As you edit your document, you can see its contents change in proper WYSIWYG fashion. The document HTML is *not* automatically passed back to Swift as you make changes. You must retrieve the HTML at an appropriate place in your app using `MarkupWKWebView.getHtml()`. This leaves the question: what is "an appropriate place"? The answer is dependent on how you are using the MarkupEditor. In the demo, where you can display the HTML as you type, the HTML is retrieved at every keystroke using the `MarkupDelegate.markupInput(_:)` method. This is generally going to be a bad idea, since it makes typing much more heavyweight than it should be. You might only retrieve the edited HTML when your user presses a "Save" button. You might want to implement an autosave type of approach by tracking when changes are happening using `MarkupDelegate.markupInput(_:)`, and only invoking `MarkupWKWebView.getHtml()` when enough time has passed or enough changes have occurred.
 
-The `getHtml()` method needs to be invoked on a MarkupWKWebView instance. Generally you will need to hold onto that instance yourself in your MarkupDelegate. You can get access to it in almost all of the MarkupDelegate methods (e.g., `MarkupWKWebView.markupLoaded` or `MarkupWKWebView.markupInput`). Using `MarkupEditor.selectedWebView` to get the instance will not be reliable, because the value becomes nil when no MarkupWKWebView has focus.
+The `getHtml()` method needs to be invoked on a MarkupWKWebView instance. Generally you will need to hold onto that instance yourself in your MarkupDelegate. You can get access to it in almost all of the MarkupDelegate methods (e.g., `markupLoaded` or `markupInput`). Using `MarkupEditor.selectedWebView` to get the instance will not be reliable, because the value becomes nil when no MarkupWKWebView has focus.
 
 Note that in SwiftUI, when you pass HTML to the MarkupEditorView, you pass a binding to a String. For example:
 
@@ -135,7 +138,7 @@ You can do some limited customization of the MarkupToolbar and the MarkupEditor 
 
 You can also provide your own CSS-based style customization and JavaScript scripts for the MarkupEditor to use in your app. The CustomContentView and CustomViewController demonstrate usage of custom CSS and scripts on the `demo.html` document and are discussed below.
 
-### Customizing the Toolbar
+### Customizing the Toolbar (iOS and MacCatalyst)
 
 You can use either a compact style of toolbar with only buttons, or a labeled form that shows what each button does. The default style is labeled. If you want to use the compact form, set `MarkupEditor.style` to `.compact`.
 
@@ -156,6 +159,12 @@ override init() {
 
 Note that the MarkupToolbar uses the static value `MarkupEditor.selectedWebView` to determine which MarkupWKWebView to invoke operations on. This means that generally you should only have a single MarkupToolbar. It's possible to use multiple MarkupToolbars in your app, but you need to be aware that they will each operate against and display the state of the MarkupWKWebView held in `MarkupEditor.selectedWebView`.
 
+### Customizing the Toolbar (MacOS)
+
+The source of truth for toolbar configuration is ToolbarConfig, which takes its data from Resources/toolbarconfig.json and Resources/keymapconfig.json. This approach lets the base configuration be defined in markupeditor-base, not in the Swift MarkupEditor. However, the Swift MarkupEditor predates markupeditor-base and had hardcoded things, like the names of paragraph styles that are displayed in the toolbar. The markupeditor-base toolbarconfig.json and keymapconfig.json provide a lot more flexibility in configuration. For example, the paragraph style names and icons are configurable. To preserve compatibility and avoid surprising existing MarkupEditor users, we specify the Swift MarkupEditor paragraph style names and the icons in Resources/toolbarconfig.json. These values are different from markupeditor-base.json, but that's the entire point of externalizing the configuration! Thus, for example, the name for an HTML "P" is "Normal" for Swift apps but "Body" when using markupeditor-base directly in, say, a JavaScript app. Similarly, the icons in the toolbar come from SFSymbols for Swift apps, but when using markupeditor-base, the default icons come from Material Design. Also, because the original Swift MarkupEditor included underline formatting by default (which is not really supported in Markdown), the Resources/toolbarconfig.json file also sets underline to show by default, and specifies the hotkey to use for it in Resources/keymapconfig.json.
+
+You can override the default MarkupEditor configurations for toolbar, keymap, and behavior by packaging your own toolbarconfig.json, keymapconfig.json, and/or behaviorconfig.json into your application bundle. On MacOS, the MarkupWKWebView gets ToolbarConfig, KeymapConfig, and BehaviorConfig instances, which are then passed as attributes to the markup-editor web component. These configurations are taken from the toolbarconfig.json, keymapconfig.json, and behaviorconfig.json in your app's bundle. If you don't provide a json file for a config in your app's bundle, then it uses the json file that is provided with the MarkupEditor in Resources directory. You can see this approach in action in the demos, where a behaviorconfig.json that is bundled in the demos sets `selectImage` to `true`, enabling local images to be inserted from files on disk by surfacing a `Select...` button in the insert dialog. Otherwise, by default the MarkupEditor does not allow local images to be inserted, and no `Select...` button shows in the dialog.
+
 ### Customizing Document Style
 
 A great byproduct of using HTML under the covers of the MarkupEditor is that you can use CSS to style the way the document looks. To do so means you need to know something about CSS and a bit about the internals of the MarkupEditor. 
@@ -164,15 +173,15 @@ The MarkupEditor uses a subset of HTML elements and generally does not specify t
 
 * Paragraph Styles: `<H1>`, `<H2>`, `<H3>`, `<H4>`, `<H5>`, `<H6>`, `<P>`. `<P>` is the default style, also referred to as "Normal" in various places. The `<CODE>` element is supported as a paragraph style or an inlined format. When used as a paragraph style, it is output as `<PRE><CODE>` to preserve its exact form.
 * Formatting: `<STRONG>`, `<EM>`, `<U>`, `<CODE>`, `<S>`, `<SUB>`, `<SUP>`.
-* Images: `<IMG class="resize-image">`. The internal details of the styling and classes to support resizable images are in `markup.js` but will not be covered here.
+* Images: `<IMG class="resize-image">`. The internal details of the styling and classes to support resizable images are in `markup-editor.js` but will not be covered here.
 * Links: `<A>`.
 * Lists: `<UL>`, `<OL>`, `<LI>`.
 * Tables: `<TABLE>`, `<TR>`, `<TH>`, `<TD>`.
 * Indenting: `<BLOCKQUOTE>`.
 
-The MarkupEditor loads two "baseline" CSS files. The first is `mirror.css`. The styling in this file is to support the classes used by ProseMirror during editing. The second is `markup.css`, which is used to style the elements identified above as supported by the MarkupEditor. Occasionally the styles in `markup.css` will supersede the ones in `mirror.css`. 
+The MarkupEditor web component embeds three "baseline" CSS files available in [markupeditor-base resources](https://github.com/stevengharris/markupeditor-base/tree/main/styles) directory. The first is `mirror.css`. The styling in this file is to support the classes used by ProseMirror during editing. The second is `markup.css`, which is used to style the elements identified above as supported by the MarkupEditor. Occasionally the styles in `markup.css` will supersede the ones in `mirror.css`. The third is `toolbar.css`, which is used to style the toolbar supplied by [markupeditor-base](https://github.com/stevengharris/markupeditor-base). Currently for Swift, this toolbar is only used on MacOS.
 
-One way to customize the MarkupEditor style is to fork the repository and edit `markup.css` to fit your needs. You can modify `mirror.css`, but you really should be familiar with ProseMirror before doing that. A less intrusive mechanism is to include your own CSS file with your app that uses the MarkupEditor, and identify the file using `MarkupWKWebViewConfiguration` that you can pass when you instantiate a MarkupEditorView or MarkupEditorUIView. The CSS file you identify this way is loaded *after* `markup.css`, so its contents follows the normal [CSS cascading rules](https://russmaxdesign.github.io/maxdesign-slides/02-css/207-css-cascade.html#/). 
+To customize the MarkupEditor style, you can include your own CSS file with your app that uses the MarkupEditor, and identify the file using `MarkupWKWebViewConfiguration` that you can pass when you instantiate a MarkupEditorView or MarkupEditorUIView. The CSS file you identify this way is loaded *after* the other CSS, so its contents follows the normal [CSS cascading rules](https://russmaxdesign.github.io/maxdesign-slides/02-css/207-css-cascade.html#/). 
 
 To specify the MarkupWKWebViewConfiguration, you might hold onto it in your MarkupDelegate as `markupConfiguration = MarkupWKWebViewConfiguration()`. Assuming you created a custom CSS file called `custom.css` and packaged it as a resource with your app, specify it in the `markupConfiguration` using:
 
@@ -188,15 +197,15 @@ h4 {
 }
 ```
 
-CSS is an incredibly powerful tool for customization. The contents of `markup.css` itself are minimal but show you how the basic elements are styled by default. If there is something the MarkupEditor is doing to prevent the kind of custom styling you are after, please file an issue; however, please do not file issues with questions about CSS.
+CSS is an incredibly powerful tool for customization. If there is something the MarkupEditor is doing to prevent the kind of custom styling you are after, please file an issue.
 
 ### Adding Custom Scripts
 
-MarkupEditor functionality that modifies and reports on the state of the HTML DOM in the MarkupWKWebView is all contained in `markup.js` and should not be modified directly except for debugging purposes. Refer to [READMEJS](https://github.com/stevengharris/MarkupEditor/blob/main/READMEJS.md) for more details. 
+MarkupEditor functionality that modifies and reports on the state of the HTML DOM in the MarkupWKWebView is all contained in the web component `markup-editor.js` in the Resources directory, and should not be modified directly except for debugging purposes. Refer to the  [README](https://github.com/stevengharris/MarkupEditor/blob/main/markupeditor-js/README.md) in `markupeditor-js` for more details. 
 
 If you have scripting you want to add, there are two mechanisms for doing so:
 
-1. Create an array of strings that contain valid JavaScript scripts that will be loaded after `markup.js`. Pass these scripts to the MarkupEditorView or MarkupEditorUIView using the `userScripts` parameter at instantiation time.
+1. Create an array of strings that contain valid JavaScript scripts that will be loaded after `markup-editor.js`. Pass these scripts to the MarkupEditorView or MarkupEditorUIView using the `userScripts` parameter at instantiation time.
 2. Create a file containing your JavaScript code, and identify the file in your MarkupWKWebViewConfiguration.
 
 To specify the MarkupWKWebViewConfiguration, you might hold onto it in your MarkupDelegate as `markupConfiguration = MarkupWKWebViewConfiguration()`. Assuming you created a script file called `custom.js` and packaged it as a resource with your app, specify it in the `markupConfiguration` using:
@@ -205,28 +214,23 @@ To specify the MarkupWKWebViewConfiguration, you might hold onto it in your Mark
 markupConfiguration.userScriptFile = "custom.js"
 ```
 
-The `userScriptFile` is loaded after `markup.js`. Your code can use the functions in `markup.js` or which you loaded using `userScripts` if needed.
+The `userScriptFile` is loaded after `markup-editor.js`. The scripts will be loaded as JavaScript modules, so a reference to the MarkupEditor API is imported as `import { MU } from "./markup-editor.js"`. Your code can use the MarkupEditor API functions in `markup-editor.js` (see the [MarkupEditor API](https://stevengharris.github.io/markupeditor-base/api/index.html)) or which you loaded using `userScripts` if needed.
 
-**NOTE:** Your script has access to the DOM, but you will not be able to modify the DOM directly in a user script. To be more exact: you can write code that modifies the DOM, but your changes will not be reflected in the view itself or in the document contents you retrieve using `getHtml`. This is because such changes must be done using the exported functions in `markup.js` or using the kind of ProseMirror APIs accessed from `markup.js`. Being able to add a script even within this restriction can still be very useful, however. For example, you could use a JavaScript library to return the document contents as Markdown. If you need to modify the DOM directly or otherwise interact with ProseMirror APIs, refer to [READMEJS](https://github.com/stevengharris/MarkupEditor/blob/main/READMEJS.md) for details about how to build the MarkupEditor and modify the JavaScript in it.
+**NOTE:** Your script has access to the DOM, but you will not be able to modify the DOM directly in a user script. To be more exact: you can write code that modifies the DOM, but your changes will not be reflected in the view itself or in the document contents you retrieve using `getHtml`. This is because such changes must be done using the [MarkupEditor API](https://stevengharris.github.io/markupeditor-base/api/index.html) or using the kind of ProseMirror APIs accessed from `markup-editor.js`. Being able to add a script even within this restriction can still be very useful, however. For example, you could use a JavaScript library to return the document contents as Markdown. If you need to modify the DOM directly or otherwise interact with ProseMirror APIs, refer to the [README](https://github.com/stevengharris/MarkupEditor/blob/main/markupeditor-js/README.md) in markupeditor-js for details about how to work with the JavaScript code the Swift MarkupEditor depends on.
 
 To invoke a function in your custom script, you should extend the MarkupWKWebView. For example, if you have a `custom.js` file that contains this function:
 
 ```
+import { MU } from "./markup-editor.js"
+
 /**
  * A public method that can be invoked from MarkupWKWebView to return
  * the number of words in the HTML document using a simpleminded approach.
  * Invoking this method requires an extension to MarkupWKWebView.
  */
 MU.wordCount = function() {
-    let wordCount = 0;
-    const styles = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'CODE'];
-    for (const style of styles) {
-        const elements = document.querySelectorAll(style);
-        for (const element of elements) {
-            wordCount += element.textContent.trim().split(' ').length;
-        }
-    };
-    return wordCount;
+    const text = MU.activeView()?.state.doc.textContent
+    return text ? text.trim().split(/\s+/).filter(Boolean).length : 0
 };
 ```
 
@@ -237,7 +241,7 @@ extension MarkupWKWebView {
     
     /// Invoke the MU.wordcount method on the JavaScript side that was added-in via custom.js.
     public func wordcount(_ handler: ((Int?)->Void)? = nil) {
-        evaluateJavaScript("MU.wordCount()") { result, error in
+        executeJavaScript("MU.wordCount()") { result, error in
             if let error {
                 print(error.localizedDescription)
             }
@@ -268,7 +272,7 @@ Being able to insert an image into a document you are editing is fundamental. In
 
 The MarkupEditor refers to these images as "local images", in contrast to images that reside external to the document. Both can be useful! When you insert a local image (by selecting it from the Image Toolbar or by pasting it into the document), the MarkupEditor creates a _new_ image file using a UUID for the file name. By default, that file resides in the same location as the text you are editing. For the demos, the document HTML and local image files are held in an `id` subdirectory of the URL found from `FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)`. You can pass the `id` to your `MarkupWKWebView` when you create it - for example, it might be the name of the document you're editing. When the MarkupEditor creates a new local image file, your `MarkupDelegate` receives a notification via the `markupImageAdded(url: URL)` method, giving you the URL of the new local image.
 
-Although local image support was a must-have in my case, it seems likely some MarkupEditor consumers would feel like it's overkill or would like to preclude its use. It also requires you to do something special with the local images when you save your document. For these reasons, there is an option to control whether to allow selection of images from local files. Local images are disallowed by default. To enable them, specify `MarkupEditor.allowLocalImages = true` early in your application lifecycle. This will add a Select button to the `ImageViewController`.
+Although local image support was a must-have in my case, it seems likely some MarkupEditor consumers would feel like it's overkill or would like to preclude its use. It also requires you to do something special with the local images when you save your document. For these reasons, there is an option to control whether to allow selection of images from local files. Local images are disallowed by default. To enable them, specify `MarkupEditor.allowLocalImages = true` early in your application lifecycle. On iOS and Mac Catalyst, this will add a Select button to the `ImageViewController`. On MacOS, it will add a Select button on the ImageItem dialog that is provided in [markupeditor-base](https://github.com/stevengharris/markupeditor-base).
 
 A reminder: The MarkupEditor does not know how/where you want to save the document you're editing or the images you have added locally. This is the responsibility of your app.
 
@@ -277,6 +281,8 @@ A reminder: The MarkupEditor does not know how/where you want to save the docume
 This section addresses searching within the document you are editing using the MarkupEditor but also provides some guidance on searching for the documents you create or edit using MarkupEditor.
 
 ### Searching Within A Document
+
+This discussion is primarily for Mac Catalyst and iOS developers, since it pertains to invoking search functionality from your own toolbar or application. On MacOS, the search bar is available by default but can be turned off by configuration. If, however, you build your own toolbar on MacOS, the discussion will be useful for you, too.
 
 For many applications, you will have no need to search the content you are editing in the MarkupEditor. But when content gets larger, it's very handy to be able to find a word or phrase, just like you would expect in any text editor. The MarkupEditor supports search with the `MarkupWKWebView` function:
 
@@ -372,21 +378,35 @@ Then, if you need to locate the `text` in the document itself once you dereferen
 
 ## Tests
 
-There is a single test target, `BasicTests`. The `BasicTests` target covers all the functionality of the MarkupEditor, effectively everything that is accessible via the MarkupToolbar across a variety of text and selections. Each test that performs an action also tests the undo and redo of that action and validates the selection after each operation. Although there are approximately 25 XCTest test cases, each test case executes multiple `HTMLTest` instances to cover different HTML content and selections. The tests take less than 30 seconds when there are no errors.
+There are two test targets.
+
+The `BaseTests` target covers all the functionality of the MarkupEditor that is present in markupeditor-base and exposed in the Swift MarkupEditor. With the exception of image pasting, `BaseTests` covers everything that is accessible via the MarkupToolbar across a variety of text and selections. The BaseTests use Swift Testing parameterized tests to exercise each test that is defined in a test suite `.json` file from the markupeditor-base project. Each test that performs an action also tests the undo and redo of that action and validates the selection after each operation. The tests take around a minute when there are no errors.
+
+The `SwiftTests` target covers functionality that is specific to the Swift MarkupEditor which is not present in markupeditor-base. The only test currently ensures that pasting of [Local Images](#local-images) into the MarkupEditor produces a uniquely named local file in the document directory.
 
 ## Demos
 
-If you consume just the package, you don't get the demo targets to build. If you create a workspace that contains the MarkupEditor project or just clone this repository, you will also get the two demo targets, creatively named `SwiftUIDemo` and `UIKitDemo`. There is also a MarkupEditor framework target in the project that is 100% the equivalent of the Swift package. By default, the demos both consume the framework, because I found it to be a lot less hassle when developing the project in the early stage. The only difference between consuming the framework and the Swift package is how the `MarkupWKWebView` locates and loads its `markup.html` resource when it is instantiated.
+If you consume just the package, you don't get the demo targets to build. If you create a workspace that contains the MarkupEditor project or just clone this repository, you will also get the two demo targets, creatively named `SwiftUIDemo` and `UIKitDemo`. There is also a MarkupEditor framework target in the project that is 100% the equivalent of the Swift package. By default, the demos both consume the framework, because I found it to be a lot less hassle when developing the project in the early stage. The only difference between consuming the framework and the Swift package is how the `MarkupWKWebView` locates and loads its resources when it is instantiated.
 
-The demos open `demo.html`, which contains information about how to use the MarkupEditor as an end user and shows you the capabilities. They populate the `leftToolbar` of the MarkupToolbar to include a `FileToolbar` that lets you create a new document for editing or open an existing HTML file. The `DemoContentView` (or `DemoViewController` in the UIKitDemo) acts both as the `MarkupDelegate` and the `FileToolbarDelegate`. As the `FileToolbarDelegate`, it opens a `TextView` to display the underlying raw HTML, which is nice for demo. The raw HTML updates as you type and make changes to the document, which is fun and has been helpful for debugging; however, you probably don't want to be doing heavyweight things like that for every keystroke in a real app.
+### iOS and Mac Catalyst
+
+The demos open `demo.html`, which contains information about how to use the MarkupEditor as an end user and shows you the capabilities. On iOS, the demo includes a `leftToolbar` on the MarkupToolbar - a `FileToolbar` that lets you create a new document for editing or open an existing HTML file. The `DemoContentView` (or `DemoViewController` in the UIKitDemo) acts both as the `MarkupDelegate` and the `FileToolbarDelegate`. As the `FileToolbarDelegate`, it opens a `TextView` to display the underlying raw HTML, which is nice for demo. The raw HTML updates as you type and make changes to the document, which is fun and has been helpful for debugging; however, you probably don't want to be doing heavyweight things like that for every keystroke in a real app. On Mac Catalyst, the "Show HTML" item is in the View menu, and the File menu contains the New, Open, Save, and Save As items.
 
 The demo directories also contain a "Simplest" version of a SwiftUI View and UIKit UIViewController, since the `DemoContentView` and `DemoViewController` for the demos are more complex, with pickers and the raw HTML display brought in with the `FileToolbar`, and the support for selecting local images. If you want to try the "Simplest" versions out, just edit the `SceneDelegate` to point at the `SimplestContentView` or `SimplestViewController`.
 
 As discussed in the [Searching Within A Document](#searching-within-a-document) section, a SwiftUI `SearchableContentView` is also provided to demonstrate the ability to search within a MarkupEditor HTML document, along with a `SearchBar` to invoke the functionality.
 
+### MacOS
+
+The MacOS target it only available for the SwiftUI demo. By default, it opens the same `DemoContentView` used for the Mac Catalyst and iOS targets. The toolbar is the default version that comes with the [markupeditor-base project](https://github.com/stevengharris/markupeditor-base), not the SwiftUI-based MarkupToolbar. It does not support the `FileToolbar`, because its functionality is available from the Mac menubar under Edit and View.
+
+The MacOS and Mac Catalyst toolbars have the same contents and functionality, except on MacOS, the toolbar also includes a Search button by default. They look a bit different because the former is rendered as part of the MarkupWKWebView as part of [markupeditor-base project](https://github.com/stevengharris/markupeditor-base), while the latter is built and displayed using SwiftUI. The icons for all the toolbars use SF-Symbols, so they are consistent with Mac and iOS users' expectations. For MacOS, this is accomplished by customizing Resources/toolbarconfig.json (which originates from markupeditor-base using Material Design icons). On MacOS, the "Show HTML" item is in the View menu, and the File menu contains the New, Open, Save, and Save As items.
+
+The main entry point for the MacOS SwiftUI demo is in SharedDemo/DemoApp (whereas it is in AppDelegate for Mac Catalyst and iOS). You can run the SimplestContentView, CustomContentView, and DivsContentView by modifying DemoApp. The SearchableContentView is not available on MacOS, because its purpose is to demonstrate how to integrate a search bar with the MarkupToolbar. On MacOS, the search bar is available as part of the standard [markupeditor-base project](https://github.com/stevengharris/markupeditor-base) toolbar and can be turned off using ToolbarConfig if needed.
+
 ## Status
 
-The current version is a feature-complete Beta. I am now consuming it myself in another project I am developing, so changes are being driven primarily by MarkupEditor uptake in that project (and any issues people might raise).
+The current version is feature-complete and although not identified as a 1.0 release, has been used in multiple projects.
 
 ### Known Issues
 
@@ -394,222 +414,7 @@ The current version is a feature-complete Beta. I am now consuming it myself in 
 
 ### History
 
-#### Main
-
-* Add `userResourceFiles` to MarkupWKWebViewConfiguration to be able to identify resources from the app bundle to co-locate with the document being edited See [Issue 229](https://github.com/stevengharris/MarkupEditor/issues/229). The README section on [Customizing the MarkupEditor](#customizing-the-markupeditor) and the demos have been updated to reflect this change.
-* Fix callback to `this.imageAdded` when an error is encountered loading an image.
-* [FIXED] [Code blocks should be horizontally scrollable](https://github.com/stevengharris/MarkupEditor/issues/231)
-
-#### Version 0.8.3 (Beta 7.1)
-
-* Created an initial writeup of how to work with JavaScript code in MarkupEditor, called [READMEJS](https://github.com/stevengharris/MarkupEditor/blob/main/READMEJS.md). The writeup includes information about the build process and requirements, key files, as well as debugging tips.
-* [FIXED] For documents with [multiple content-editable divs](https://github.com/stevengharris/MarkupEditor/discussions/178), it was possible to select across divs, which thereby allowed deletion and editing operations for multiple divs at once. This version prevents selection across divs.
-* [FIXED] Remove Xcode project references to the now-deleted UndoTests and RedoTests.
-* [FIXED] [Multi-selection in lists doesn't work properly](https://github.com/stevengharris/MarkupEditor/issues/219)
-* [FIXED] [Search mode background indication](https://github.com/stevengharris/MarkupEditor/issues/223)
-
-#### Version 0.8.0 (Beta 7)
-
-This release is a very big change under the covers but should remain (almost completely) compatible with previous versions. The big change consists of replacing the MarkupEditor's custom DOM manipulation code in `markup.js` with code that uses [ProseMirror](https://prosemirror.net). ProseMirror is a JavaScript "toolkit for building rich-text editors." Instead of writing JavaScript code to manipulate the `contenteditable` DOM directly, the MarkupEditor now uses ProseMirror APIs to apply transactional changes to the ProseMirror `EditorState` which in turn modifies the DOM shown in the MarkupWKWebView. I'll be writing more about ProseMirror and how it is used by the MarkupEditor separately, but this entry in the README serves as a notification of the change.
-
-* Compatibility and Customization
-    * There are effectively no changes to the MarkupEditor API on the Swift side. Your existing custom implementations of MarkupDelegate methods should continue to work. Existing applications that use the MarkupEditor without modification should work without any issues. Existing usage of custom user css and scripts should work without issues *unless your script is manipulating the DOM directly*.
-    * Any customizations of `markup.css` or `markup.html` will need to be compared to the new versions and merged properly.
-    * If you forked `markup.js`, then you will need to adapt those changes to the new ProseMirror approach present in the new `markup.js`. **NOTE:** The `Resources/markup.js` file that is now loaded by the MarkupEditor is a build artifact created using [rollup](https://rollupjs.org) and __should not be edited directly__ except for transient debugging purposes. See [READMEJS](https://github.com/stevengharris/MarkupEditor/blob/main/READMEJS.md) about the MarkupEditor build and how that is integrated with ProseMirror modules. 
-    * Some public methods of `markup.js` that are invoked using `evaluateJavaScript` in the MarkupWKWebView have been deprecated or changed, but their public signatures in MarkupWKWebView have not changed or have been extended in a compatible manner if needed.
-    * Custom scripts that attempt to modify the DOM directly will not work in the new ProseMirror-based world. DOM manipulation is available only through the exported functions of `markup.js`. If you need to work at this level, you will require a full development setup per [READMEJS](https://github.com/stevengharris/MarkupEditor/blob/main/READMEJS.md). The README section on [Customizing the MarkupEditor](#customizing-the-markupeditor) and the example code has been updated to reflect this change.
-* Change `StyledContentView` and `StyledViewController` to `CustomContentView` and `CustomViewController` to reflect the limitations on direct modification of the DOM in user scripts, as discussed in [Customizing the MarkupEditor](#customizing-the-markupeditor). Update `custom.js` and `custom.css` used in those demos.
-* Update the README to reflect the adoption of ProseMirror in MarkupEditor. The README does not discuss the changes from the previous non-ProseMirror version. There is some limited context provided in [Legacy and Acknowledgements](#legacy-and-acknowledgements).
-* Support new *Code* paragraph style in addition to the existing *P* and *H1-H6*. The new style shows up in the MarkupToolbar by default. This was a [longstanding issue](https://github.com/stevengharris/MarkupEditor/issues/96) but was very simple to fix with ProseMirror.
-* Use `<EM>` rather than `<I>` and `<STRONG>` rather than `<B>` in HTML output. The MarkupEditor still accepts HTML with `<I>` and `<B>` tags in `setHtml`, but will only produce HTML (via `getHtml`) that contains `<EM>` and `<STRONG>`. This was done to adhere to ProseMirror's defaults, but is "more correct" from an HTML perspective. Since any existing documents produced using the MarkupEditor will contain `<B>` and `<I>`, but they load and display properly into the new version, the change results in a kind of lazy update, where it only affects new documents or old ones that you make changes to.
-* Remove the use of `<TBODY>` and `<THEAD>`, since `<TD>` and `<TH>` properly define the header and body elements. The MarkupEditor still accepts HTML with `<TBODY>` and `<THEAD>` tags in `setHtml`, but will not produce HTML (via `getHtml`) that contains them. Since any existing tables produced using the MarkupEditor will contain `<TBODY>` and perhaps `<THEAD>`, but they load and display properly into the new version, the change results in a kind of lazy update, where it only affects new documents or old ones that you make changes to.
-* Slight editing behavior change for formatting (e.g., bold, italic, etc). In the original MarkupEditor version, if you selected any point within a word and formatted (e.g., CTRL-B), the word would be changed to the new format. In this new version, you must select the word (e.g., by double-clicking on it) before changing or setting the format. The previous approach resulted in ambiguous situations, particularly when the cursor was at the beginning or end of a word. For example, if you want to begin typing in a non-bolded font at the end of a bolded word, and you press CTRL-B, does your gesture mean you intend to unbold the word before the cursor or just stop using bold when you type?
-* Some "multi-selection" editing behaviors, where the selection begins in one element and ends in another, may be slightly different. I don't think any of these changes will be noticeable, and the tests cover a broad range of conditions, each of which I have reviewed and decided are correct from a principal of least astonishment perspective.
-* Remove UndoTests and RedoTests, adopting an approach in BasicTests that exercises undo and redo for every action. These new tests also verify that the selection is set properly after every action and the undo/redo of that action. The BasicTests suite is faster than before, even including undo and redo.
-* Add a separate [License](#license) section to point out ProseMirror usage under MIT License.
-* [FIXED] [The issue of keyboard hiding when manipulating headers](https://github.com/stevengharris/MarkupEditor/issues/214)
-* [FIXED] [Table navigation with Enter](https://github.com/stevengharris/MarkupEditor/issues/209)
-* [FIXED] [Add parameter in getHtml function to remove css classes](https://github.com/stevengharris/MarkupEditor/issues/200)
-* [FIXED] [Trouble placing an image at the top of the editor](https://github.com/stevengharris/MarkupEditor/issues/196)
-* [FIXED] [The styling('Bold', 'cursive') is reset with each new line.(After enter is pressed)](https://github.com/stevengharris/MarkupEditor/issues/194)
-* [FIXED] [Pasting trouble](https://github.com/stevengharris/MarkupEditor/issues/175)
-* [FIXED] [Keyboard dismissing when I select the "Bold" option from tool bar](https://github.com/stevengharris/MarkupEditor/issues/159)
-* [FIXED] [Support line breaks](https://github.com/stevengharris/MarkupEditor/issues/135)
-* [FIXED] [Treatment of \<code> blocks](https://github.com/stevengharris/MarkupEditor/issues/96)
-
-#### Version 0.7.2 (Beta 6)
-
-* Search improvements, including:
-  * When in search mode, interpret Enter as "search forward" and Shift+Enter as "search backward".
-  * Outline the selection while in search mode with a border, so it's clearer where you are in the document.
-  * Slightly darken background while in search mode, to indicate visually that Enter and Shift+Enter are being interpreted as search forward and backward.
-  * Highlight all strings matching the search string, so you can see where Enter and Shift+Enter will move next. Note that highlighting, which depends on the CSS custom highlight API (ref: https://developer.mozilla.org/en-US/docs/Web/API/CSS_Custom_Highlight_API) only works in Safari 17.2 or later, which won't be available in older runtimes still supported by the MarkupEditor.
-  * Add MarkupDelegate callbacks `markupActivateSearch` and `markupDeactivateSearch`, default behavior for which is to toggle `MarkupEditor.searchActive` state so the MarkupToolbar can be disabled/enabled while in search mode.
-  * Limit search to contenteditable divs (generally there is only one, `MU.editor`).
-* When using multiple contenteditable DIVs, gate blur event from resetting `selectedID` by `muteFocusBlur`.
-  
-#### Version 0.7.1 (Beta 5)
-
-* Support multiple editable areas in a single document (https://github.com/stevengharris/MarkupEditor/pull/195). There is a very small SwiftUI-only demo (see DivsContentView in the SwiftUIDemo) of the capability, but the feature is as-yet undocumented. See the [discussion](https://github.com/stevengharris/MarkupEditor/discussions/178) for some more detail.
-* Allow users to select which list types to support (https://github.com/stevengharris/MarkupEditor/pull/197). Thanks [Thomas Mengelatte](https://github.com/ThomasMengelatte).
-
-#### Version 0.7.0 (Beta 4)
-
-The main change in this version is to adopt strict concurrency in anticipation of Swift 6. You may have to make source code changes to use this version. Specifically, the `MarkupEditor` class, whose statics contain settings and defaults is now marked `@MainActor`. If you access `MarkupEditor` from a class that is itself not main-actor-isolated, perhaps in a method that sets MarkupEditor defaults like this:
-
-```
-private static func initializeMarkupEditor() {
-    MarkupEditor.style = .compact
-    MarkupEditor.allowLocalImages = true
-    MarkupEditor.toolbarLocation = .keyboard
-    #if DEBUG
-    MarkupEditor.isInspectable = true
-    #endif
-}
-```
-
-then you will see errors like:
-
-```
-Main actor-isolated static property 'style' can not be mutated from a non-isolated context
-```
-
-You can fix the errors by making the method accessing the `MarkupEditor` class main actor-isolated like this:
-
-```
-@MainActor
-private static func initializeMarkupEditor() {
-    MarkupEditor.style = .compact
-    MarkupEditor.allowLocalImages = true
-    MarkupEditor.toolbarLocation = .keyboard
-    #if DEBUG
-    MarkupEditor.isInspectable = true
-    #endif
-}
-```
-
-* Enforce strict concurrency, update to @MainActor in various places (https://github.com/stevengharris/MarkupEditor/issues/193)
-* Expose public MarkupWKWebView.baseUrl (per https://github.com/stevengharris/MarkupEditor/issues/175#issuecomment-1900884682)
-
-#### Version 0.6.2 (Beta 3)
-
-* Update README to clarify how to get modified HTML, a recurring issue for users (e.g., https://github.com/stevengharris/MarkupEditor/issues/176).
-* Update README to include a [Customizing the MarkupEditor](#customizing-the-markupeditor) section.
-* Add ability to customize [CSS](#customizing-document-style) and [scripts](#adding-custom-scripts) in MarkupWKWebViewConfiguration.
-* Fixed various paste issues (https://github.com/stevengharris/MarkupEditor/issues/184, https://github.com/stevengharris/MarkupEditor/issues/179, https://github.com/stevengharris/MarkupEditor/issues/128).
-* Removed empty text element left on formatting (https://github.com/stevengharris/MarkupEditor/issues/181).
-
-#### Version 0.6.0 (Beta 2)
-
-There have been a lot of changes since Beta 1 was released. Beta 2 pulls them all together in what I hope is closer to a proper release candidate.
-
-#### Features
-
-* The MarkupEditor did not support text search, but now does. See [Search](#search) in this README.
-* There was no way to provide "placeholder" text for an empty MarkupWKWebView, but it is now supported.  (https://github.com/stevengharris/MarkupEditor/issues/101)
-* Setting the selection when the MarkupWKWebView is opened (which updates the MarkupToolbar) was automatic but is now optional. (https://github.com/stevengharris/MarkupEditor/issues/70)
-
-#### Closed Issues
-
-* Enter and multi-element styling operations were broken inside of indents. (https://github.com/stevengharris/MarkupEditor/issues/57)
-* Local images did not respect the resourcesUrl setting relative to the base URL. (https://github.com/stevengharris/MarkupEditor/issues/59)
-* Image sizing was absolute, which caused problems moving between devices, but display is now limited to the width of the device/window. (https://github.com/stevengharris/MarkupEditor/issues/69)
-* Editing *only on Intel-based Mac Catalyst apps on MacOS 13 Ventura* was buggy/broken due to a base WKWebView regression that Apple fixed in MacOS 14 Sonoma. (https://github.com/stevengharris/MarkupEditor/issues/76)
-* Paste alerts (e.g., "... would like to paste from ...") were being presented unnecessarily. (https://github.com/stevengharris/MarkupEditor/issues/77)
-* Link URLs were being inserted at the incorrect selection point. (https://github.com/stevengharris/MarkupEditor/issues/79)
-* The selection caret was missing sometimes when the MarkupWKWebView was opened. (https://github.com/stevengharris/MarkupEditor/issues/83)
-* Spurious notifications of content changes were issued when images were prepped to be resizable. (https://github.com/stevengharris/MarkupEditor/issues/86)
-* Editing on touch devices had various issues. (https://github.com/stevengharris/MarkupEditor/issues/89, https://github.com/stevengharris/MarkupEditor/issues/93, https://github.com/stevengharris/MarkupEditor/issues/106)
-* Pasting content with newlines (e.g., from the Notes app) was buggy. (https://github.com/stevengharris/MarkupEditor/issues/128)
-* The TableSizer drag operation would not produce a table properly on Mac Catalyst. (https://github.com/stevengharris/MarkupEditor/issues/142)
-* There was a white flash when the MarkupWKWebView was presented initially in dark mode. (https://github.com/stevengharris/MarkupEditor/issues/143)
-* A change introduced to fix the responsive area on touch devices resulted in an incorrect scroll height. (https://github.com/stevengharris/MarkupEditor/issues/144)
-* The hot-key combo to use the `code` style was cumbersome and was changed from ⌘{ to ⌘\`. (https://github.com/stevengharris/MarkupEditor/issues/148)
-
-#### Version 0.5.1 (Beta 1)
-
-Fix a tagging issue for the Swift package.
-
-#### Version 0.5.0 (Beta 1)
-
-This is the first Beta release for the MarkupEditor! Please see [the announcement and discussion](https://github.com/stevengharris/MarkupEditor/discussions/52) about it.
-
-##### Closed Issues
-
-* Replace LinkToolbar and ImageToolbar with popovers ([Issue 42](https://github.com/stevengharris/MarkupEditor/issues/42))
-* Build from package is broken on iOS ([Issue 47](https://github.com/stevengharris/MarkupEditor/issues/47))
-* Touch device selection doesn't work properly ([Issue 48](https://github.com/stevengharris/MarkupEditor/issues/48))
-* Make paragraph style an optional part of StyleToolbar ([Issue 49](https://github.com/stevengharris/MarkupEditor/issues/49))
-
-#### Version 0.4.0
-
-I consider this release to be feature complete with the exception of some remaining UX problems on touch devices. If you were consuming earlier versions, you may encounter breaking changes, but I wanted to get those done before Beta. For example, the MarkupWebView previously was a UIViewRepresentable of the MarkupWKWebView. It has been eliminated in favor of a SwiftUI MarkupEditorView and a separate MarkupWKWebViewRepresentable.
-
-The major drivers of the pre-Beta work have been usability and proper support for touch devices. This release also completely eliminates any need for a user to know about the SubToolbar, which previous versions surfaced because of the need to overlay it on the MarkupWKWebView. This release includes a new MarkupEditorView and MarkupEditorUIView for SwiftUI and UIKit respectively. These Views/UIViews lay out and manage the MarkupToolbar and (new) MarkupToolbarUIView, providing a simpler end-user experience when you just want to drop in a View/UIView. There are lots of other improvements and features as outlined below.
-
-##### Closed Issues
-
-* Multi-indent/outdent operations work ([Issue 13](https://github.com/stevengharris/MarkupEditor/issues/13))
-* Easy image resizing ([Issue 14](https://github.com/stevengharris/MarkupEditor/issues/14)) [pinch gesture support underway now]
-* Table sizer works on touch devices ([Issue 15](https://github.com/stevengharris/MarkupEditor/issues/15))
-* User settable table bordering ([Issue 16](https://github.com/stevengharris/MarkupEditor/issues/16))
-* Complete menu/hotkey support that syncs with the ToolbarContents ([Issue 17](https://github.com/stevengharris/MarkupEditor/issues/17))
-* Toolbar visible selection state works properly for large selections ([Issue 18](https://github.com/stevengharris/MarkupEditor/issues/18))
-* Pasting HTML works properly ([Issue 20](https://github.com/stevengharris/MarkupEditor/issues/20))
-* Enter at end of indent outdents until no longer indented ([Issue 21](https://github.com/stevengharris/MarkupEditor/issues/21))
-* Block quote outdent works on one line at a time ([Issue 22](https://github.com/stevengharris/MarkupEditor/issues/22))
-* Easily customizable toolbar contents using ToolbarContents ([Issue 31](https://github.com/stevengharris/MarkupEditor/issues/31))
-* Support pinch gesture for image resizing ([Issue 38](https://github.com/stevengharris/MarkupEditor/issues/38))
-* InputAccessoryView disappears on device rotation ([Issue 39](https://github.com/stevengharris/MarkupEditor/issues/39))
-* Provide context menus (copy/cut/paste) ([Issue 45](https://github.com/stevengharris/MarkupEditor/issues/45))
-
-##### Usability
-
-* MarkupEditor struct provides central access to configuration/customization
-* MarkupEditorView sets up and manages the MarkupToolbar automatically for SwiftUI development
-* MarkupEditorUIView set up and managed MarkupToolbarUIView automatically for UIKit development
-* MarkupWKWebView automatically installs a customized MarkupToolbarUIView as the inputAccessoryView
-* Eliminate need for users to set up EnvironmentObjects to use the MarkupEditor as in previous versions
-
-#### Version 0.3.3
-
-* Run build and tests on main using GitHub actions.
-* Start using the GitHub issue tracker and PRs to monitor issues prior to Beta.
-* Support multi-list operations.
-* Support multi-indent/outdent operations.
-
-#### Version 0.3.2
-
-This is an intermediate release in support of multi-element operations. A multi-element operation involves selecting multiple elements (e.g., paragraphs or formatted text elements - basically a large selected area in the document) and applying an operation like changing styles, formatting (e.g., bold, italic), or list attributes.
-
-* Support multi-style operations.
-* Support multi-format operations.
-
-#### Version 0.3.1
-
-This version is getting closer feature-complete on Mac Catalyst. There have been some API changes from the 0.2 version, primarily driven by the new support for local images.
-
-* Support local images in the edited document, the ability to insert an image from file as opposed to an external URL.
-* Refactor tests into BasicTests, UndoTests, and RedoTests. Tests have no dependency on a host app.
-* All operations support undo/redo properly (with the exception of selections across paragraphs, as cited in Known Issues).
-* Support pasting HTML and images. (Previously only plain text was supported.)
-* Menus work in the demos but are still incomplete.
-* List editing responds properly to the Enter key at beginning, inside, and end of list items. Enter in an empty list item outdents until exiting the list.
-* Tab is now strictly a table navigation mechanism and is no longer associated with indent/outdent operations.
-
-#### Version 0.2.2
-
-The labeled toolbar took up too much screen real estate in my other project, so I created a .compact form and made that selectable via ToolbarPreference. Now I have a way to add other preferences easily. I also needed a better way to communicate the selectionState and selectedWebView when I have an arbitrary number of MarkupWebViews being editing using a single MarkupToolbar. I set up MarkupEnv to accomplish that and adjusted the SwiftUIDemo and UIKitDemo to use it.
-
-* Add this History section to the README.
-* Make the toolbar configurable between .compact (the new default) and .labeled via ToolbarPreference.
-* Use MarkupEnv to access the selectionState and selectedWebView.
-* Bundle loading logic now depends on SWIFT_PACKAGE in MarkupWKWebView, not my homegrown USEFRAMEWORK setting.
-* Some minor adjustments to backgrounds and css to fix issues when the MarkupToolbar and MarkupWebView were embedded in other SwiftUI views.
-
-#### Version 0.2.1
-
-* This was the first version made public and open sourced.
+History is now being tracked in a separate [Change Log](https://github.com/stevengharris/MarkupEditor/blob/main/CHANGELOG.md)
 
 ## Legacy and Acknowledgements
 
@@ -633,4 +438,4 @@ In case you think "To heck with this contentEditable nonsense. How hard can it b
 
 MarkupEditor is available under the [MIT license](https://github.com/stevengharris/MarkupEditor/blob/main/LICENSE).
 
-MarkupEditor depends on ProseMirror (https://prosemirror.net, https://github.com/prosemirror). Be aware that if you distribute MarkupEditor or embed it in your application, you will be distributing `markup.js`, which in addition to original MarkupEditor code, contains "substantial portions" of ProseMirror. ProseMirror is also available under the [MIT license](https://github.com/ProseMirror/prosemirror/blob/master/LICENSE).
+MarkupEditor depends on ProseMirror (https://prosemirror.net, https://github.com/prosemirror). Be aware that if you distribute MarkupEditor or embed it in your application, you will be distributing `markup-editor.js`, which in addition to original MarkupEditor code, contains "substantial portions" of ProseMirror. ProseMirror is also available under the [MIT license](https://github.com/ProseMirror/prosemirror/blob/master/LICENSE).

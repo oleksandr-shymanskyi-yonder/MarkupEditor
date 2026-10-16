@@ -1,0 +1,172 @@
+//
+//  ToolbarConfig.swift
+//  MarkupEditor
+//
+//  Created by Steven Harris on 2/24/26.
+//
+
+import OSLog
+
+/// A struct that is loaded from toolbarconfig.json and provides easy access to its settings. The loading operation
+/// first looks for the json file in the `main` bundle, and if it is not present, falls back to the json file provided
+/// in the Resources directory of the MarkupEditor package. This provides a simple mechanism for applications
+/// to change the defaults, by providing their own version of the json file in their application. The json file
+/// is the source of truth, and its settings will be used by the MarkupWKWebView.
+///
+/// Note that toolbarconfig.json originates in [markupeditor-base](https://github.com/stevengharris/markupeditor-base)
+/// but is modified locally to conform more with the original MarkupEditor and Mac user expectations of SFSymbols icons.
+public struct ColorPair: Codable {
+    public var light: String
+    public var dark: String
+    
+    public init(light: String, dark: String) {
+        self.light = light
+        self.dark = dark
+    }
+}
+
+public struct AppearanceConfig: Codable {
+    public var accentColor: ColorPair?
+    public var toolbarBg: ColorPair?
+    public var buttonBg: ColorPair?
+    public var borderColor: ColorPair?
+    public var hoverBg: ColorPair?
+    public var buttonSize: String?
+    public var buttonFontSize: String?
+    
+    public init(
+        accentColor: ColorPair? = nil,
+        toolbarBg: ColorPair? = nil,
+        buttonBg: ColorPair? = nil,
+        borderColor: ColorPair? = nil,
+        hoverBg: ColorPair? = nil,
+        buttonSize: String? = nil,
+        buttonFontSize: String? = nil
+    ) {
+        self.accentColor = accentColor
+        self.toolbarBg = toolbarBg
+        self.buttonBg = buttonBg
+        self.borderColor = borderColor
+        self.hoverBg = hoverBg
+        self.buttonSize = buttonSize
+        self.buttonFontSize = buttonFontSize
+    }
+}
+
+public struct ToolbarConfig: JSONConfigurable {
+    public var visibility: [String: Bool]
+    public var ordering: [String: Int]
+    public var menus: [String: Bool]
+    public var insertBar: [String: Bool]
+    public var formatBar: [String: Bool]
+    public var styleMenu: [String: String?]
+    public var styleBar: [String: Bool]
+    public var help: [String : String]
+    public var augmentation: [String: Bool?]
+    public var icons: [String: String]
+    public var appearance: AppearanceConfig?
+    
+    public init(
+        visibility: [String: Bool],
+        ordering: [String: Int],
+        menus: [String: Bool],
+        insertBar: [String: Bool],
+        formatBar: [String: Bool],
+        styleMenu: [String: String?],
+        styleBar: [String: Bool],
+        help: [String : String],
+        augmentation: [String: Bool?],
+        icons: [String: String],
+        appearance: AppearanceConfig? = nil
+    ) {
+        self.visibility = visibility
+        self.ordering = ordering
+        self.menus = menus
+        self.insertBar = insertBar
+        self.formatBar = formatBar
+        self.styleMenu = styleMenu
+        self.styleBar = styleBar
+        self.help = help
+        self.augmentation = augmentation
+        self.icons = icons
+        self.appearance = appearance
+    }
+    
+    public init() {
+        let config = ToolbarConfig.load()
+        visibility = config.visibility
+        ordering = config.ordering
+        menus = config.menus
+        insertBar = config.insertBar
+        formatBar = config.formatBar
+        styleMenu = config.styleMenu
+        styleBar = config.styleBar
+        help = config.help
+        augmentation = config.augmentation
+        icons = config.icons
+        appearance = config.appearance
+    }
+    
+    private static func load() -> ToolbarConfig {
+        let mainBundle = Bundle.main
+        #if SWIFT_PACKAGE
+                let packageBundle = Bundle.module   // Bundle.module is only accessible within BaseTests
+        #else
+                let packageBundle = Bundle(for: MarkupWKWebView.self)
+        #endif
+        let mainPath = mainBundle.path(forResource: "toolbarconfig", ofType: "json")
+        let packagePath = packageBundle.path(forResource: "toolbarconfig", ofType: "json")
+        guard let path = mainPath ?? packagePath else {
+            Logger.config.error("The toolbarconfig.json resource could not be found in bundle")
+            return ToolbarConfig.empty()
+        }
+        let url = URL(filePath: path, directoryHint: .notDirectory)
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(ToolbarConfig.self, from: data)
+        } catch let error {
+            Logger.config.error("Error decoding ToolbarConfig from \(path): \(error.localizedDescription)")
+            return ToolbarConfig.empty()
+        }
+    }
+    
+    private static func empty() -> ToolbarConfig {
+        ToolbarConfig(
+            visibility: [:],
+            ordering: [:],
+            menus: [:],
+            insertBar: [:],
+            formatBar: [:],
+            styleMenu: [:],
+            styleBar: [:],
+            help: [:],
+            augmentation: [:],
+            icons: [:],
+            appearance: nil
+        )
+    }
+    
+    /// Override the protocol default to return `none()` on decode failure instead of nil.
+    public static func fromJSON(_ string: String) -> ToolbarConfig {
+        (self as JSONConfigurable.Type).fromJSON(string) as? ToolbarConfig ?? ToolbarConfig.empty()
+    }
+    
+    /// A nil value for `styleMenu[tag.lowerCased()]` means the tag should not be in the menu
+    public func name(forTag tag: String) -> String? {
+        styleMenu[tag.lowercased()]!
+    }
+    
+    public func barsInOrder() -> [String] {
+        ordering.keys.sorted { ordering[$0]! < ordering[$1]! }
+    }
+    
+    public func buttonHeight() -> Int {
+        let buttonHeight = appearance?.buttonSize ?? "24px"
+        return Int(buttonHeight.prefix(while: { $0.isNumber })) ?? 24
+    }
+    
+    public func toolbarHeight() -> Int {
+        buttonHeight() + 7
+    }
+    
+}

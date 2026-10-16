@@ -12,11 +12,17 @@ import Combine
 import OSLog
 import UniformTypeIdentifiers
 
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
+
 /// A specialized WKWebView used to support WYSIWYG editing in Swift.
 ///
 /// All init methods invoke setupForEditing, which loads markup.html that in turn loads
 /// markup.css and markup.js. All interaction from Swift to the WKWebView comes through
-/// this class which knows how to evaluateJavaScript to get things done.
+/// this class which knows how to executeJavaScript to get things done.
 ///
 /// When some event happens on the JavaScript side, it is handled by the WKScriptMessageHandler,
 /// which is the MarkupCoordinator.
@@ -38,6 +44,7 @@ import UniformTypeIdentifiers
 public class MarkupWKWebView: WKWebView, ObservableObject {
     public typealias TableBorder = MarkupEditor.TableBorder
     public typealias TableDirection = MarkupEditor.TableDirection
+    public typealias TableAlign = MarkupEditor.TableAlign
     public typealias FindDirection = MarkupEditor.FindDirection
     private let selectionState = SelectionState()       // Locally cached, specific to this view
     public var clientHeightPad: Int = 8                 // Value to adjust html clientHeight
@@ -77,6 +84,8 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     private var markupDelegate: MarkupDelegate?
     /// Track whether a paste action has been invoked so as to avoid double-invocation per https://developer.apple.com/forums/thread/696525
     var pastedAsync = false
+
+    #if canImport(UIKit)
     /// An accessoryView to override the inputAccessoryView of UIResponder.
     public var accessoryView: UIView? {
         didSet {
@@ -94,8 +103,17 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidHide), name: UIResponder.keyboardDidHideNotification, object: nil)
         }
     }
+    #else
+    public var accessoryView: PlatformView? = nil
+    #endif
+
     private var oldContentOffset: CGPoint?
+
+    #if canImport(UIKit)
     private var markupToolbarHeightConstraint: NSLayoutConstraint!
+    #else
+    private var markupToolbarHeightConstraint: NSLayoutConstraint? = nil
+    #endif
     private var firstResponder: AnyCancellable?
     
     /// Types of content that can be pasted in a MarkupWKWebView
@@ -119,7 +137,9 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     }
     
     public init(html: String? = nil, placeholder: String? = nil, selectAfterLoad: Bool = true, resourcesUrl: URL? = nil, id: String? = nil, markupDelegate: MarkupDelegate? = nil, configuration: MarkupWKWebViewConfiguration? = nil) {
-        super.init(frame: CGRect.zero, configuration: WKWebViewConfiguration())
+        let wkConfiguration = WKWebViewConfiguration()
+        wkConfiguration.allowsInlinePredictions = configuration?.allowsInlinePredictions ?? false
+        super.init(frame: CGRect.zero, configuration: wkConfiguration)
         self.html = html
         self.placeholder = placeholder
         self.selectAfterLoad = selectAfterLoad
@@ -134,6 +154,14 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         initForEditing()
     }
     
+    @MainActor
+    deinit {
+        stopLoading()
+        configuration.userContentController.removeScriptMessageHandler(forName: "markup")
+        uiDelegate = nil
+        navigationDelegate = nil
+    }
+    
     /// Set things up properly for editing.
     ///
     /// Setting things up means populating a cache directory with the "root" files: markup.html,
@@ -146,8 +174,10 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// which in turn loads the css and js scripts itself. The markup.html defines the "editor" element, which
     /// is later populated with html.
     private func initForEditing() {
+        #if canImport(UIKit)
         isOpaque = false                        // Eliminate flash in dark mode
         backgroundColor = .systemBackground     // Eliminate flash in dark mode
+        #endif
         initRootFiles()
         markupDelegate?.markupSetup(self)
         // Enable drop interaction
@@ -156,6 +186,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         // Load markup.html to kick things off
         let tempRootHtml = cacheUrl().appendingPathComponent("markup.html")
         loadFileURL(tempRootHtml, allowingReadAccessTo: tempRootHtml.deletingLastPathComponent())
+        #if canImport(UIKit)
         // Resolving the tintColor in this way lets the WKWebView
         // handle dark mode without any explicit settings in css
         tintColor = tintColor.resolvedColor(with: .current)
@@ -163,6 +194,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         if MarkupEditor.toolbarLocation == .keyboard {
             inputAccessoryView = MarkupToolbarUIView.inputAccessory(markupDelegate: markupDelegate)
         }
+        #endif
         observeFirstResponder()
     }
     
@@ -177,6 +209,13 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             }
             self.becomeFirstResponderIfReady()
         }
+    }
+    
+    public func setCoordinatorConfiguration(_ coordinator: MarkupCoordinator) {
+        configuration.userContentController.add(coordinator, name: "markup")
+        // The following are needed for the web component to load as a module.
+        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
     }
     
     /// Have this MarkupWKWebView becomeFirstResponder if loadInitialHtml has been called after the coordinator sees "ready" callback.
@@ -196,6 +235,26 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
                 setSelection()
             }
         }
+    }
+    
+    public func executeJavaScript(_ muFunction: String, completionHandler: ((@MainActor @Sendable (Any?, (any Error)?)->Void))? = nil) {
+        let wrappedFunction = """
+        (() => {
+                    let element = document.getElementById("markupeditor")
+                    return element?.\(muFunction)
+        })()
+        """
+        evaluateJavaScript(wrappedFunction, completionHandler: completionHandler)
+    }
+    
+    @discardableResult public func executeJavaScript(_ muFunction: String) async throws -> Any? {
+        let wrappedFunction = """
+        (() => {
+                    let element = document.getElementById("markupeditor")
+                    return element?.\(muFunction)
+        })()
+        """
+        return try await evaluateJavaScript(wrappedFunction)
     }
     
     /// Set the selection properly if we are focused.
@@ -231,7 +290,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     
     /// Reset the selection to the beginning of the document.
     func resetSelection(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.resetSelection()") { result, error in
+        executeJavaScript("MU.resetSelection()") { result, error in
             if let error {
                 Logger.webview.error("resetSelection error: \(error.localizedDescription)")
             }
@@ -241,7 +300,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     
     /// Focus on MU.editor, which triggers a focus event and sets hasFocus
     func focus(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.focus()") { result, error in
+        executeJavaScript("MU.focus()") { result, error in
             if let error {
                 Logger.webview.error("focus error: \(error)")
                 self.hasFocus = false
@@ -260,11 +319,11 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// Bundle to respond to module, where we can find markup.html etc that are
     /// part of the package.
     func bundle() -> Bundle {
-        #if SWIFT_PACKAGE
+#if SWIFT_PACKAGE
         return Bundle.module
-        #else
+#else
         return Bundle(for: MarkupWKWebView.self)
-        #endif
+#endif
     }
     
     /// Return the url for the named resource, always using the one in Bundle.main first if it exists.
@@ -281,14 +340,11 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// Any failure to find or copy the root resource files results in an assertion failure, since no editing is possible.
     private func initRootFiles() {
         guard
-            let rootHtml = url(forResource: "markup", withExtension: "html"),
-            let rootCss = url(forResource: "markup", withExtension: "css"),
-            let rootJs = url(forResource: "markup", withExtension: "js"),
-            let mirrorCss = url(forResource: "mirror", withExtension: "css") else {
-            assertionFailure("Could not find markup.html, css, and js and mirror.css for this bundle.")
+            let rootJs = url(forResource: "markup-editor", withExtension: "js") else {
+            assertionFailure("Could not find markup-editor.js for this bundle.")
             return
         }
-        var srcUrls = [rootHtml, rootCss, rootJs, mirrorCss]
+        var srcUrls = [rootJs]
         // If specified, the userCSS comes from the app's main bundle, not something MarkupEditor provides
         if let userCssFile, let userCss = url(forResource: userCssFile, withExtension: nil) {
             srcUrls.append(userCss)
@@ -303,6 +359,16 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
                 }
             }
         }
+        if let pluginFiles = markupConfiguration?.pluginFiles {
+            for file in pluginFiles {
+                if let plugin = url(forResource: file, withExtension: nil) {
+                    srcUrls.append(plugin)
+                }
+            }
+        }
+        if let delegate = markupConfiguration?.delegate, let srcUrl = url(forResource: delegate, withExtension: nil) {
+            srcUrls.append(srcUrl)
+        }
         let fileManager = FileManager.default
         // The cacheDir is a "id" subdirectory below the app's cache directory
         // If not supplied, then id will be a UUID().uuidString
@@ -315,8 +381,86 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
                 try? fileManager.removeItem(at: dstUrl)
                 try fileManager.copyItem(at: srcUrl, to: dstUrl)
             }
+            populateMarkupHtml(cacheUrl: cacheUrl)
         } catch let error {
             assertionFailure("Failed to set up cacheDir with root resource files: \(error.localizedDescription)")
+        }
+    }
+    
+
+    /// Returns the HTML-attribute-encoded JSON array of plugin filenames for the `plugins` attribute
+    /// on the `<markup-editor>` element, or `nil` when `pluginFiles` is nil or empty.
+    /// Each entry uses `./filename` (relative specifier) so WebKit resolves it alongside `markup-editor.js` in `cacheUrl`.
+    /// Returns the HTML-attribute-encoded JSON array of plugin filenames for the `plugins` attribute
+    /// on the `<markup-editor>` element. Returns nil when `pluginFiles` is nil or empty.
+    static func pluginsAttribute(for pluginFiles: [String]?) -> String? {
+        guard let pluginFiles, !pluginFiles.isEmpty else { return nil }
+        let names = pluginFiles.map { "./" + $0 }
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: names),
+              let jsonString = String(data: jsonData, encoding: .utf8) else { return nil }
+        return jsonString.replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    /// Create markup.html in the cache directory. By loading this file, everything else is kicked off.
+    ///
+    /// We use  the `<markup-editor>` web component, and because we copy the standard
+    /// `markup-editor.js` and `markupeditor.css` (and the css files it imports) into the
+    /// cache directory, we don't need to specify `muscript` or `mustyle`. The Swift config values
+    /// for `placeholder`, `resourcesUrl`, and `selectedAfterLoad` are supplied as attributes
+    /// to the web component. Also note:
+    ///
+    /// * The Swift value for `delegate` is not useful to pass as an attribute, since the "swift" message
+    /// handler (i.e., the MarkupCoordinator) does all the calls to the Swift-native delegate.
+    /// * The JavaScript-created toolbar available from the MarkupEditor is turned off for the Swift
+    /// MarkupEditor, which has its own SwiftUI MarkupToolbar.
+    /// * The initial HTML is inserted as the content of the web component.
+    func populateMarkupHtml(cacheUrl: URL) {
+        let componentscript = cacheUrl.appendingPathComponent("markup-editor.js").path
+        let dstUrl = cacheUrl.appendingPathComponent("markup.html")
+        #if !os(macOS)
+        let toolbar: String? = "none"
+        let behavior: String? = nil
+        let keymap: String? = nil
+        #else
+        let toolbar = (markupConfiguration?.toolbarConfig ?? ToolbarConfig()).asAttribute()
+        let behavior = (markupConfiguration?.behaviorConfig ?? BehaviorConfig()).asAttribute()
+        let keymap = (markupConfiguration?.keymapConfig ?? KeymapConfig()).asAttribute()
+        #endif
+        let plugins = MarkupWKWebView.pluginsAttribute(for: markupConfiguration?.pluginFiles)
+        let html = """
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+                <meta name="supported-color-schemes" content="light dark">
+                <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+                <style>markup-editor:not(:defined) { visibility: hidden; }</style>
+            </head>
+            <body>
+                <markup-editor
+                    id="markupeditor"
+                    \(placeholder != nil ? "placeholder=\"\(placeholder!)\"" : "")
+                    \(resourcesUrl != nil ? "base=\"\(resourcesUrl!.path)\"" : "")
+                    \(userScriptFile != nil ? "userscript=\"\(userScriptFile!)\"" : "")
+                    \(userCssFile != nil ? "userstyle=\"\(userCssFile!)\"" : "")
+                    \(toolbar != nil ? "toolbar=\"\(toolbar!)\"" : "")
+                    \(keymap != nil ? "keymap=\"\(keymap!)\"" : "")
+                    \(behavior != nil ? "behavior=\"\(behavior!)\"" : "")
+                    \(markupConfiguration?.delegate != nil ? "delegate=\"\(markupConfiguration!.delegate!)\"" : "")
+                    \(plugins != nil ? "plugins=\"\(plugins!)\"" : "")
+                    handler="swift">
+                \(html != nil ? html! : "<p></p>")
+                </markup-editor>
+                <script src="\(componentscript)" type="module"></script>
+            </body>
+        </html>
+        """
+        let fileManager = FileManager.default
+        do {
+            try? fileManager.removeItem(at: dstUrl)
+            try html.write(to: dstUrl, atomically: true, encoding: String.Encoding.utf8)
+        } catch let error {
+            assertionFailure("Failed to populate \(dstUrl.path): \(error.localizedDescription)")
         }
     }
     
@@ -377,7 +521,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     
     /// Set the EditableAttributes for the editor element.
     public func setTopLevelAttributes(_ handler: (()->Void)? = nil) {
-        guard 
+        guard
             let attributes = markupConfiguration?.topLevelAttributes,
             !attributes.isEmpty,
             let jsonData = try? JSONSerialization.data(withJSONObject: attributes.options),
@@ -386,7 +530,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             handler?()
             return
         }
-        evaluateJavaScript("MU.setTopLevelAttributes('\(jsonString)')") { result, error in
+        executeJavaScript("MU.setTopLevelAttributes('\(jsonString)')") { result, error in
             handler?()
         }
     }
@@ -397,7 +541,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     public func loadUserFiles(_ handler: (()->Void)? = nil) {
         let scriptFile = userScriptFile == nil ? "null": "'\(userScriptFile!)'"
         let cssFile = userCssFile == nil ? "null" : "'\(userCssFile!)'"
-        evaluateJavaScript("MU.loadUserFiles(\(scriptFile), \(cssFile))") { result, error in
+        executeJavaScript("MU.loadUserFiles(\(scriptFile), \(cssFile))") { result, error in
             handler?()
         }
     }
@@ -411,22 +555,20 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// MarkupWKWebView becomeFirstResponder and trigger a SelectionState
     /// update to refresh the MarkupToolbar as each one loads its HTML.
     public func loadInitialHtml() {
-        setPlaceholder {
-            self.markupDelegate?.markupWillLoad(self)
-            self.setHtml(self.html ?? "") {
-                //Logger.webview.debug("isReady: \(self.id)")
-                self.updateHeight() {
-                    self.isReady = true
-                    if let delegate = self.markupDelegate {
-                        delegate.markupDidLoad(self) {
-                            if self.selectAfterLoad {
-                                self.becomeFirstResponderIfReady()
-                            }
-                        }
-                    } else {
+        self.markupDelegate?.markupWillLoad(self)
+        self.setHtml(self.html ?? "") {
+            //Logger.webview.debug("isReady: \(self.id)")
+            self.updateHeight() {
+                self.isReady = true
+                if let delegate = self.markupDelegate {
+                    delegate.markupDidLoad(self) {
                         if self.selectAfterLoad {
                             self.becomeFirstResponderIfReady()
                         }
+                    }
+                } else {
+                    if self.selectAfterLoad {
+                        self.becomeFirstResponderIfReady()
                     }
                 }
             }
@@ -435,6 +577,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     
     //MARK: Keyboard handling and accessoryView setup
 
+    #if canImport(UIKit)
     /// Respond to keyboardWillShow event.
     ///
     /// We adjust toolbar height constraint so it shows properly and scroll the selection so it is not obscured by
@@ -452,7 +595,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             guard let userInfo = notification.userInfo else { return }
             // In iOS 16.1 and later, the keyboard notification object is the screen the keyboard appears on.
             guard let screen = notification.object as? UIScreen,
-                  // Get the keyboard’s frame at the end of its animation
+                  // Get the keyboard's frame at the end of its animation
                   let keyboardFrameEnd = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             // Use the screen to get the coordinate space to convert from
             let fromCoordinateSpace = screen.coordinateSpace
@@ -476,7 +619,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             }
         }
     }
-    
+
     /// Respond to the keyboardDidHide event.
     ///
     /// Adjust the height contstraint on the MarkupToolbar and reset the contentOffset.
@@ -486,9 +629,11 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         scrollView.setContentOffset(oldContentOffset ?? CGPoint.zero, animated: true)
         oldContentOffset = nil
     }
+    #endif
     
     //MARK: Overrides
     
+    #if canImport(UIKit)
     /// Override hitTest to enable drop events.
     ///
     /// The view receives UIDragEvents, which appear to be a private type of
@@ -523,6 +668,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             return self
         }
     }
+    #endif
     
     //MARK: Responder Handling
     
@@ -537,24 +683,41 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     //    return !hasFocus
     //}
     
+    #if canImport(UIKit)
     public override var inputAccessoryView: UIView? {
         get { accessoryView }
         set { accessoryView = newValue }
     }
-    
-    /// Return false to disable various menu items depending on selectionState
+
+    /// Return false to disable various menu items depending on selectionState.
+    /// Actions not owned by MarkupWKWebView are forwarded to super so they can
+    /// propagate up the responder chain (e.g., toggleFullScreen to the window).
     @objc override public func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        guard selectionState.isValid else { return false }
+        // First, handle actions that are always available regardless of selectionState
         switch action {
         case #selector(getter: undoManager):
             return true
+        case #selector(undoFromMenu(_:)), NSSelectorFromString("undo:"):
+            return selectionState.canUndo
+        case #selector(redoFromMenu(_:)), NSSelectorFromString("redo:"):
+            return selectionState.canRedo
+        #if targetEnvironment(macCatalyst)
+        case #selector(zoomIn(_:)), #selector(zoomOut(_:)), #selector(zoomToActualSize(_:)):
+            return true
+        #endif
+        default:
+            break
+        }
+        // For MarkupEditor-specific actions, require valid selectionState
+        guard selectionState.isValid else { return super.canPerformAction(action, withSender: sender) }
+        switch action {
         case #selector(UIResponderStandardEditActions.select(_:)), #selector(UIResponderStandardEditActions.selectAll(_:)):
             return super.canPerformAction(action, withSender: sender)
         case #selector(UIResponderStandardEditActions.copy(_:)), #selector(UIResponderStandardEditActions.cut(_:)):
             return selectionState.canCopyCut
         case #selector(UIResponderStandardEditActions.paste(_:)):
             return pasteableType() != nil
-        case #selector(indent), #selector(outdent):
+        case #selector(indentFromMenu), #selector(outdentFromMenu):
             return selectionState.canDent
         case #selector(bullets), #selector(numbers):
             return selectionState.canList
@@ -562,43 +725,53 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             return selectionState.canStyle
         case #selector(showPluggableLinkPopover), #selector(showPluggableImagePopover), #selector(showPluggableTablePopover):
             return true     // Toggles off and on
+        case #selector(insertTableFromMenu):
+            return !selectionState.isInTable    // Tables cannot be nested
         case #selector(bold), #selector(italic), #selector(underline), #selector(code), #selector(strike), #selector(subscriptText), #selector(superscript):
             return selectionState.canFormat
         default:
-            //Logger.webview.debug("Unknown action: \(action)")
-            return false
+            return super.canPerformAction(action, withSender: sender)
         }
     }
+    #endif
     
     @available(*, deprecated, message: "No longer needed for modal input operations.")
     public func startModalInput(_ handler: (() -> Void)? = nil) {
-        evaluateJavaScript("MU.startModalInput()") { result, error in
+        executeJavaScript("MU.startModalInput()") { result, error in
             handler?()
         }
     }
     
     @available(*, deprecated, message: "No longer needed for modal input operations.")
     public func endModalInput(_ handler: (() -> Void)? = nil) {
-        evaluateJavaScript("MU.endModalInput()") { result, error in
+        executeJavaScript("MU.endModalInput()") { result, error in
             handler?()
         }
     }
     
+    #if os(macOS) && !targetEnvironment(macCatalyst)
+    @objc public func openLinkDialogFromMenu() {
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        executeJavaScript("MU.openLinkDialog()")
+    }
+    #endif
+
+    #if canImport(UIKit)
     /// Indirect the presentation of the link popover thru the markupDelegate to allow overriding.
     @objc public func showPluggableLinkPopover() {
         markupDelegate?.markupShowLinkPopover(self)
     }
-    
+
     /// Indirect the presentation of the image popover thru the markupDelegate to allow overriding.
     @objc public func showPluggableImagePopover() {
         markupDelegate?.markupShowImagePopover(self)
     }
-    
+
     /// Indirect the presentation of the table popover thru the markupDelegate to allow overriding.
     @objc public func showPluggableTablePopover() {
         markupDelegate?.markupShowTablePopover(self)
     }
-    
+
     /// Show the default link popover using the LinkViewController.
     @objc public func showLinkPopover() {
         MarkupEditor.showInsertPopover.type = .link     // Does nothing by default
@@ -613,7 +786,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         popover.sourceRect = MarkupEditor.selectionState.sourceRect ?? bounds
         closestVC()?.present(linkVC, animated: true)
     }
-    
+
     /// Show the default link popover using the ImageViewController.
     @objc public func showImagePopover() {
         MarkupEditor.showInsertPopover.type = .image    // Does nothing by default
@@ -628,76 +801,207 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         popover.sourceRect = MarkupEditor.selectionState.sourceRect ?? bounds
         closestVC()?.present(imageVC, animated: true)
     }
-    
+
     /// Show the default table popover by setting the state of `MarkupEditor.showInsertPopover` to `.table`,
     /// which will in turn `forcePopover` of either the TableSizer or TableToolbar.
     @objc public func showTablePopover() {
         guard selectionState.canInsert else { return }
         MarkupEditor.showInsertPopover.type = .table    // Triggers default SwiftUI TableSizer or TableToolbar
     }
+    #endif
     
     //MARK: Testing support
-
+    
     /// Return unformatted but clean HTML contained in this MarkupWKWebView, with selection points
     /// indicated by `sel`.
     ///
     /// Except for the `sel` markers, the HTML is functionally equivalent to `getHtml()` but is not prettified..
     public func getTestHtml(sel: String = "|", handler: ((String?)->Void)? = nil) {
-        // DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.evaluateJavaScript("MU.getTestHTML('\(sel)')") { result, error in
-                handler?(result as? String)
+        executeJavaScript("MU.getTestHTML('\(sel)')") { result, error in
+            handler?(result as? String)
+        }
+    }
+    
+    public func getTestHtml(sel: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            getTestHtml(sel: sel) { html in
+                continuation.resume(with: .success(html))
             }
-        // }
+        }
     }
     
     /// Set the html content for testing and return the sel-marked-up string.
     ///
     /// The small delay seems to avoid intermitted problems when running many tests together.
     public func setTestHtml(_ value: String, sel: String = "|", handler: ((String?) -> Void)? = nil) {
-        // DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.evaluateJavaScript("MU.setTestHTML('\(value.escaped)', '\(sel)')") { result, error in
-                if error == nil {
-                    self.getTestHtml(sel: sel) { string in
-                        handler?(string)
-                    }
-                } else {
-                    handler?(nil)
+        executeJavaScript("MU.setTestHTML('\(value.escaped)', '\(sel)')") { result, error in
+            if error == nil {
+                self.getTestHtml(sel: sel) { string in
+                    handler?(string)
                 }
+            } else {
+                handler?(nil)
             }
-        // }
+        }
+    }
+    
+    public func setTestHtml(_ value: String, sel: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            setTestHtml(value) { html in
+                continuation.resume(with: .success(html))
+            }
+        }
     }
     
     /// Invoke the preprocessing step for MU.pasteHTML directly.
     public func testPasteHtmlPreprocessing(html: String, handler: ((String?)->Void)? = nil) {
-        evaluateJavaScript("MU.testPasteHTMLPreprocessing('\(html.escaped)')") { result, error in
+        executeJavaScript("MU.testPasteHTMLPreprocessing('\(html.escaped)')") { result, error in
             handler?(result as? String)
+        }
+    }
+    
+    public func testPasteHtmlPreprocessing(html: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            testPasteHtmlPreprocessing(html: html) { endHtml in
+                continuation.resume(with: .success(endHtml))
+            }
         }
     }
     
     /// Invoke the preprocessing step for MU.pasteText directly.
     public func testPasteTextPreprocessing(html: String, handler: ((String?)->Void)? = nil) {
-        evaluateJavaScript("MU.testPasteTextPreprocessing('\(html.escaped)')") { result, error in
+        executeJavaScript("MU.testPasteTextPreprocessing('\(html.escaped)')") { result, error in
             handler?(result as? String)
         }
     }
     
+    public func testPasteTextPreprocessing(html: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            testPasteTextPreprocessing(html: html) { endHtml in
+                continuation.resume(with: .success(endHtml))
+            }
+        }
+    }
+
+    /// Invoke isRecognizedLanguage directly.
+    public func testIsRecognizedLanguage(_ name: String, handler: ((Bool) -> Void)? = nil) {
+        executeJavaScript("MU.testIsRecognizedLanguage('\(name.escaped)')") { result, error in
+            handler?(result as? Bool ?? false)
+        }
+    }
+
+    public func testIsRecognizedLanguage(_ name: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            testIsRecognizedLanguage(name) { recognized in
+                continuation.resume(with: .success(recognized))
+            }
+        }
+    }
+
+    /// Invoke presentCodeLanguages on the active document directly.
+    public func testPresentCodeLanguages(handler: (([String]) -> Void)? = nil) {
+        executeJavaScript("MU.testPresentCodeLanguages()") { result, error in
+            handler?(result as? [String] ?? [])
+        }
+    }
+
+    public func testPresentCodeLanguages() async -> [String] {
+        await withCheckedContinuation { continuation in
+            testPresentCodeLanguages { languages in
+                continuation.resume(with: .success(languages))
+            }
+        }
+    }
+
+    /// Invoke codeLanguageTabInfo on the active document's current selection directly.
+    /// Returns nil when the selection is not in a code_block, matching the JS-side null.
+    public func testCodeLanguageTabInfo(handler: (((pos: Int, label: String)?) -> Void)? = nil) {
+        executeJavaScript("MU.testCodeLanguageTabInfo()") { result, error in
+            guard let dict = result as? [String: Any], let pos = dict["pos"] as? Int, let label = dict["label"] as? String else {
+                handler?(nil)
+                return
+            }
+            handler?((pos: pos, label: label))
+        }
+    }
+
+    public func testCodeLanguageTabInfo() async -> (pos: Int, label: String)? {
+        await withCheckedContinuation { continuation in
+            testCodeLanguageTabInfo { info in
+                continuation.resume(with: .success(info))
+            }
+        }
+    }
+
     /// Invoke the \_doBlockquoteEnter operation directly.
     public func testBlockquoteEnter(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.testBlockquoteEnter()") { result, error in handler?() }
+        executeJavaScript("MU.testBlockquoteEnter()") { result, error in handler?() }
     }
     
     /// Invoke the \_doListEnter operation directly.
     public func testListEnter(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.testListEnter()") { result, error in handler?() }
+        executeJavaScript("MU.testListEnter()") { result, error in handler?() }
+    }
+    
+    public func testListEnter() async {
+        await withCheckedContinuation { continuation in
+            testListEnter {
+                continuation.resume()
+            }
+        }
     }
     
     /// Ensure extractContents behaves as expected, since we depend on it.
     public func testExtractContents(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.testExtractContents()") { result, error in handler?() }
+        executeJavaScript("MU.testExtractContents()") { result, error in handler?() }
     }
     
+    //MARK: Plugins
+
+    /// Register `plugin` with the active editor's plugin registry.
+    public func registerPlugin(_ plugin: Plugin) async throws {
+        let filenameArg = plugin.filename.map { ", filename: '\($0.escaped)'" } ?? ""
+        try await executeJavaScript("MU.registerPlugin({name: '\(plugin.name.escaped)', type: '\(plugin.type.escaped)'\(filenameArg)})")
+    }
+
+    /// Remove `plugin` from the active editor's plugin registry.
+    public func unregisterPlugin(_ plugin: Plugin) async throws {
+        try await executeJavaScript("MU.unregisterPlugin('\(plugin.name.escaped)')")
+    }
+
+    /// Return the registered plugin named `name`, or nil if not found.
+    public func getPlugin(name: String) async -> Plugin? {
+        guard
+            let result = try? await executeJavaScript("MU.getPlugin('\(name.escaped)')"),
+            let dict = result as? [String: Any],
+            let data = try? JSONSerialization.data(withJSONObject: dict)
+        else { return nil }
+        do {
+            return try JSONDecoder().decode(Plugin.self, from: data)
+        } catch {
+            Logger.webview.error("Error decoding plugin \(name): \(error)")
+            return nil
+        }
+    }
+
+    /// Return the registered plugins matching `type`, or all registered plugins if `type` is nil.
+    public func getPlugins(type: String? = nil) async -> [Plugin] {
+        let arg = type.map { "'\($0.escaped)'" } ?? ""
+        guard
+            let result = try? await executeJavaScript("MU.getPlugins(\(arg))"),
+            let array = result as? [[String: Any]],
+            let data = try? JSONSerialization.data(withJSONObject: array)
+        else { return [] }
+        do {
+            return try JSONDecoder().decode([Plugin].self, from: data)
+        } catch {
+            Logger.webview.error("Error decoding plugins: \(error)")
+            return []
+        }
+    }
+
     //MARK: Javascript interactions
-    
+
     /// Return the HTML contained in this MarkupWKWebView.
     ///
     /// By default, we return nicely formatted HTML stripped of DIVs, SPANs, and empty text nodes.
@@ -706,14 +1010,28 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         //  Pretty HTML is formatted to be readable.
         //  Clean HTML has divs, spans, and empty text nodes removed.
         let argString = divID == nil ? "'\(pretty)', '\(clean)'" : "'\(pretty)', '\(clean)', '\(divID!)'"
-        evaluateJavaScript("MU.getHTML(\(argString))") { result, error in
+        executeJavaScript("MU.getHTML(\(argString))") { result, error in
             handler?(result as? String)
         }
     }
-    
+
+    public func getHtml(pretty: Bool = true, clean: Bool = true, divID: String? = nil) async -> String? {
+        await withCheckedContinuation { continuation in
+            getHtml(pretty: pretty, clean: clean, divID: divID) { html in
+                continuation.resume(returning: html)
+            }
+        }
+    }
+
     public func emptyDocument(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.emptyDocument()") { result, error in
+        executeJavaScript("MU.emptyDocument()") { result, error in
             handler?()
+        }
+    }
+
+    public func emptyDocument() async {
+        await withCheckedContinuation { continuation in
+            emptyDocument { continuation.resume() }
         }
     }
     
@@ -722,7 +1040,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             handler?()
             return
         }
-        evaluateJavaScript("MU.setPlaceholder('\(newPlaceholder.escaped)')") { result, error in
+        executeJavaScript("MU.setPlaceholder('\(newPlaceholder.escaped)')") { result, error in
             handler?()
         }
     }
@@ -730,7 +1048,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     public func setHtml(_ html: String, handler: (()->Void)? = nil) {
         self.html = html    // Our local record of what we set, used by setHtmlIfChanged
         // FYI, we use the term selectAfterLoad here, but on the JavaScript side, it is focusAfterLoad.
-        evaluateJavaScript("MU.setHTML('\(html.escaped)', \(selectAfterLoad))") { result, error in
+        executeJavaScript("MU.setHTML('\(html.escaped)', \(selectAfterLoad))") { result, error in
             handler?()
         }
     }
@@ -742,11 +1060,15 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             handler?()
         }
     }
+
+    public func setToolbarVisible(_ visible: Bool) {
+        executeJavaScript("MU.setToolbarVisible(\(visible ? "true" : "false"))")
+    }
     
     /// Set the CSS padding-block bottom so that the padding fills the frame height. We do this based on markupConfiguration,
     /// which is set to true for iOS, else false.
     private func padBottom(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.padBottom('\(frame.height - CGFloat(clientHeightPad))')") { result, error in
+        executeJavaScript("MU.padBottom('\(frame.height - CGFloat(clientHeightPad))')") { result, error in
             if let error {
                 Logger.webview.error("Error: \(error)")
             }
@@ -758,6 +1080,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     public func updateHeight(handler: (()->Void)? = nil) {
         self.getHeight() { clientHeight in
             let paddedHeight = clientHeight + self.clientHeightPad
+            #if canImport(UIKit)
             if self.markupConfiguration?.padBottom ?? false {
                 self.padBottom() {
                     self.markupDelegate?.markup(self, heightDidChange: paddedHeight)
@@ -767,24 +1090,82 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
                 self.markupDelegate?.markup(self, heightDidChange: paddedHeight)
                 handler?()
             }
+            #else
+            self.markupDelegate?.markup(self, heightDidChange: paddedHeight)
+            handler?()
+            #endif
         }
     }
     
     public func insertLink(_ href: String?, handler: (()->Void)? = nil) {
         if href == nil {
-            evaluateJavaScript("MU.deleteLink()") { result, error in handler?() }
+            executeJavaScript("MU.deleteLink()") { result, error in handler?() }
         } else {
-            evaluateJavaScript("MU.insertLink('\(href!.escaped)')") { result, error in handler?() }
+            executeJavaScript("MU.insertLink('\(href!.escaped)')") { result, error in handler?() }
         }
     }
     
+    public func insertLink(_ href: String?) async {
+        await withCheckedContinuation { continuation in
+            insertLink(href) {
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Insert a link to the header identified by `hTag` ('H1'-'H6') and `index` (its position among
+    /// headers with that tag), assigning the header a unique id if it doesn't already have one.
+    public func insertInternalLink(hTag: String, index: Int, handler: (()->Void)? = nil) {
+        executeJavaScript("MU.insertInternalLink('\(hTag)', \(index))") { result, error in handler?() }
+    }
+
+    public func insertInternalLink(hTag: String, index: Int) async {
+        await withCheckedContinuation { continuation in
+            insertInternalLink(hTag: hTag, index: index) {
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Return every header in the document, in document order within each level.
+    public func getHeaders(handler: (([HeaderInfo])->Void)? = nil) {
+        executeJavaScript("MU.getHeaders()") { result, error in
+            guard
+                error == nil,
+                let jsonString = result as? String,
+                let data = jsonString.data(using: .utf8),
+                let headers = try? JSONDecoder().decode([HeaderInfo].self, from: data) else {
+                handler?([])
+                return
+            }
+            handler?(headers)
+        }
+    }
+
+    public func getHeaders() async -> [HeaderInfo] {
+        await withCheckedContinuation { continuation in
+            getHeaders { headers in
+                continuation.resume(returning: headers)
+            }
+        }
+    }
+
     public func insertImage(src: String?, alt: String?, handler: (()->Void)? = nil) {
         var args = "'\(src!.escaped)'"
         if alt != nil {
             args += ", '\(alt!.escaped)'"
         }
         becomeFirstResponder()
-        evaluateJavaScript("MU.insertImage(\(args))") { result, error in handler?() }
+        executeJavaScript("MU.insertImage(\(args))") { result, error in
+            handler?() }
+    }
+    
+    public func insertImage(src: String?, alt: String?) async {
+        await withCheckedContinuation { continuation in
+            insertImage(src: src, alt: alt) {
+                continuation.resume()
+            }
+        }
     }
     
     public func insertLocalImage(url: URL, handler: ((URL)->Void)? = nil) {
@@ -807,6 +1188,28 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         }
     }
     
+    public func getLocalImages(handler: (([String])->Void)?) {
+        executeJavaScript("MU.getLocalImages()") { result, error in
+            if let error {
+                Logger.webview.error("Error: \(error)")
+            }
+            if let srcArray = result as? [String] {
+                handler?(srcArray)
+            } else {
+                Logger.webview.error("Error: Could not getLocalImages.")
+                handler?([])
+            }
+        }
+    }
+
+    public func getLocalImages() async -> [String] {
+        await withCheckedContinuation { continuation in
+            getLocalImages { srcs in
+                continuation.resume(returning: srcs)
+            }
+        }
+    }
+
     /// Copy both the html for the image and the image itself to the clipboard.
     ///
     /// Why copy both? For copy/paste within the document itself, we always want to paste the HTML. The html
@@ -854,12 +1257,33 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         if !url.isFileURL {
             items["public.html"] = htmlData     // And for external images, load up the html
         }
+        #if canImport(UIKit)
         let pasteboard = UIPasteboard.general
         pasteboard.setItems([items])
+        #else
+        let markupImageType = NSPasteboard.PasteboardType("markup.image")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        // Always write the custom markup.image type so local image round-trips preserve dimensions
+        if let markupData = items["markup.image"] as? Data {
+            pasteboard.addTypes([markupImageType], owner: nil)
+            pasteboard.setData(markupData, forType: markupImageType)
+        }
+        // Write actual image data for local images so they can be pasted into other apps
+        if let pngData = items["public.png"] as? Data {
+            pasteboard.addTypes([.png], owner: nil)
+            pasteboard.setData(pngData, forType: .png)
+        }
+        // Write HTML for external images
+        if let htmlData = items["public.html"] as? Data, let htmlString = String(data: htmlData, encoding: .utf8) {
+            pasteboard.addTypes([.html], owner: nil)
+            pasteboard.setString(htmlString, forType: .html)
+        }
+        #endif
     }
     
     private func getHeight(_ handler: @escaping ((Int)->Void)) {
-        evaluateJavaScript("MU.getHeight()") { result, error in
+        executeJavaScript("MU.getHeight()") { result, error in
             handler(result as? Int ?? 0)
         }
     }
@@ -884,7 +1308,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             .replacingOccurrences(of: "\u{0022}", with: "&quot;")   // "
             .replacingOccurrences(of: "\u{201C}", with: "&quot;")   // “
             .replacingOccurrences(of: "\u{201D}", with: "&quot;")   // ”
-        evaluateJavaScript("MU.searchFor(\"\(patchedText)\", \"\(direction)\", \"\(activate)\")") { result, error in
+        executeJavaScript("MU.searchFor(\"\(patchedText)\", \"\(direction)\", \"\(activate)\")") { result, error in
             if let error {
                 Logger.webview.error("Error: \(error)")
             }
@@ -892,9 +1316,17 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         }
     }
     
+    public func search(for text: String, direction: FindDirection, activate: Bool = false) async {
+        await withCheckedContinuation { continuation in
+            search(for: text, direction: direction, activate: activate) {
+                continuation.resume()
+            }
+        }
+    }
+    
     /// Stop intercepting Enter to invoke searchForNext().
     public func deactivateSearch(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.deactivateSearch()") { result, error in
+        executeJavaScript("MU.deactivateSearch()") { result, error in
             if let error {
                 Logger.webview.error("Error: \(error)")
             }
@@ -904,7 +1336,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     
     /// Cancel the search that is underway, so that Enter is no longer intercepted and indexes are cleared on the JavaScript side.
     public func cancelSearch(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.cancelSearch()") { result, error in
+        executeJavaScript("MU.cancelSearch()") { result, error in
             if let error {
                 Logger.webview.error("Error: \(error)")
             }
@@ -917,6 +1349,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// We use the selrect found in selection state, pad it by 8 vertically, and scroll a minimum
     /// amount to keep put that padded rectangle fully in the view. Scrolling never moves the
     /// top below 0 or the bottom above the scrollView.contentHeight.
+    #if canImport(UIKit)
     public func makeSelectionVisible(handler: (()->Void)? = nil) {
         getSelectionState() { state in
             guard let selrect = state.selrect else {
@@ -946,77 +1379,238 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             handler?()
         }
     }
-    
+    #else
+    public func makeSelectionVisible(handler: (()->Void)? = nil) {
+        // Not supported on macOS yet
+        handler?()
+    }
+    #endif
+
     //MARK: Undo/redo
     
-    /// Invoke the undo function from the undo button, same as occurs with Command-S.
-    ///
-    /// Note that this operation interleaves the browser-native undo (e.g., undoing typing)
-    /// with the _undoOperation implemented in markup.js.
-    public func undo(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.undoCommand()") { result, error in handler?() }
+    public func canUndo(handler: ((Bool)->Void)? = nil) {
+        executeJavaScript("MU.canUndo()") { result, error in
+            handler?(result as? Bool ?? false)
+        }
     }
     
-    /// Invoke the undo function from the undo button, same as occurs with Command-Shift-S.
-    ///
-    /// Note that this operation interleaves the browser-native redo (e.g., redoing typing)
-    /// with the _redoOperation implemented in markup.js.
+    public func canUndo() async -> Bool {
+        await withCheckedContinuation { continuation in
+            canUndo { canUndoState in
+                continuation.resume(with: .success(canUndoState))
+            }
+        }
+    }
+    
+    public func canRedo(handler: ((Bool)->Void)? = nil) {
+        executeJavaScript("MU.canRedo()") { result, error in
+            handler?(result as? Bool ?? false)
+        }
+    }
+    
+    public func canRedo() async -> Bool {
+        await withCheckedContinuation { continuation in
+            canRedo { canRedoState in
+                continuation.resume(with: .success(canRedoState))
+            }
+        }
+    }
+    
+    /// Invoke the undo function from the undo button, same as occurs with Command-Z.
+    public func undo(handler: (()->Void)? = nil) {
+        executeJavaScript("MU.doUndo()") { result, error in handler?() }
+    }
+    
+    public func undo() async {
+        await withCheckedContinuation { continuation in
+            undo {
+                continuation.resume()
+            }
+        }
+    }
+    
+    /// Menu-targeted undo action matching the `undo:` selector.
+    @objc public func undoFromMenu(_ sender: Any?) {
+        undo(handler: nil)
+    }
+    
+    /// Invoke the redo function from the redo button, same as occurs with Command-Shift-Z.
     public func redo(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.redoCommand()") { result, error in handler?() }
+        executeJavaScript("MU.doRedo()") { result, error in handler?() }
+    }
+    
+    public func redo() async {
+        await withCheckedContinuation { continuation in
+            redo {
+                continuation.resume()
+            }
+        }
+    }
+    
+    /// Menu-targeted redo action matching the `redo:` selector.
+    @objc public func redoFromMenu(_ sender: Any?) {
+        redo(handler: nil)
+    }
+    
+    //MARK: Horizontal rule support
+    public func insertHRule(handler: (()->Void)? = nil) {
+        executeJavaScript("MU.insertHRule()") { result, error in handler?() }
+    }
+    
+    @objc public func insertHRuleFromMenu(_ sender: Any?) {
+        insertHRule()
     }
     
     //MARK: Table editing
     
     public func nextCell(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.nextCell()") { result, error in handler?() }
+        executeJavaScript("MU.nextCell()") { result, error in handler?() }
     }
     
     public func prevCell(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.prevCell()") { result, error in handler?() }
+        executeJavaScript("MU.prevCell()") { result, error in handler?() }
     }
     
     public func insertTable(rows: Int, cols: Int, handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.insertTable(\(rows), \(cols))") { result, error in handler?() }
+        executeJavaScript("MU.insertTable(\(rows), \(cols))") { result, error in handler?() }
+    }
+    
+    public func insertTable(rows: Int, cols: Int) async {
+        await withCheckedContinuation { continuation in
+            insertTable(rows: rows, cols: cols) {
+                continuation.resume()
+            }
+        }
     }
     
     public func addRow(_ direction: TableDirection, handler: (()->Void)? = nil) {
         switch direction {
         case .before:
-            evaluateJavaScript("MU.addRow('BEFORE')") { result, error in handler?() }
+            executeJavaScript("MU.addRow('BEFORE')") { result, error in handler?() }
         case .after:
-            evaluateJavaScript("MU.addRow('AFTER')") { result, error in handler?() }
+            executeJavaScript("MU.addRow('AFTER')") { result, error in handler?() }
+        }
+    }
+    
+    public func addRow(_ direction: TableDirection) async {
+        await withCheckedContinuation { continuation in
+            addRow(direction) {
+                continuation.resume()
+            }
         }
     }
     
     public func deleteRow(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.deleteTableArea('ROW')") { result, error in handler?() }
+        executeJavaScript("MU.deleteTableArea('ROW')") { result, error in handler?() }
+    }
+    
+    public func deleteRow() async {
+        await withCheckedContinuation { continuation in
+            deleteRow() {
+                continuation.resume()
+            }
+        }
     }
     
     public func addCol(_ direction: TableDirection, handler: (()->Void)? = nil) {
         switch direction {
         case .before:
-            evaluateJavaScript("MU.addCol('BEFORE')") { result, error in handler?() }
+            executeJavaScript("MU.addCol('BEFORE')") { result, error in handler?() }
         case .after:
-            evaluateJavaScript("MU.addCol('AFTER')") { result, error in handler?() }
+            executeJavaScript("MU.addCol('AFTER')") { result, error in handler?() }
+        }
+    }
+    
+    public func addCol(_ direction: TableDirection) async {
+        await withCheckedContinuation { continuation in
+            addCol(direction) {
+                continuation.resume()
+            }
         }
     }
     
     public func deleteCol(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.deleteTableArea('COL')") { result, error in handler?() }
+        executeJavaScript("MU.deleteTableArea('COL')") { result, error in handler?() }
+    }
+    
+    public func deleteCol() async {
+        await withCheckedContinuation { continuation in
+            deleteCol() {
+                continuation.resume()
+            }
+        }
     }
     
     public func addHeader(colspan: Bool = true, handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.addHeader(\(colspan))") { result, error in handler?() }
+        executeJavaScript("MU.addHeader(\(colspan))") { result, error in handler?() }
+    }
+    
+    public func addHeader(colspan: Bool = true) async {
+        await withCheckedContinuation { continuation in
+            addHeader(colspan: colspan) {
+                continuation.resume()
+            }
+        }
     }
     
     public func deleteTable(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.deleteTableArea('TABLE')") { result, error in handler?() }
+        executeJavaScript("MU.deleteTableArea('TABLE')") { result, error in handler?() }
+    }
+    
+    public func deleteTable() async {
+        await withCheckedContinuation { continuation in
+            deleteTable() {
+                continuation.resume()
+            }
+        }
     }
     
     public func borderTable(_ border: TableBorder, handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.borderTable(\"\(border)\")")  { result, error in handler?() }
+        executeJavaScript("MU.borderTable(\"\(border)\")")  { result, error in handler?() }
     }
+
+    public func borderTable(_ border: TableBorder) async {
+        await withCheckedContinuation { continuation in
+            borderTable(border) {
+                continuation.resume()
+            }
+        }
+    }
+
+    public func justifyColumn(_ align: TableAlign, handler: (()->Void)? = nil) {
+        executeJavaScript("MU.justifyColumn(\"\(align)\")")  { result, error in handler?() }
+    }
+
+    public func justifyColumn(_ align: TableAlign) async {
+        await withCheckedContinuation { continuation in
+            justifyColumn(align) {
+                continuation.resume()
+            }
+        }
+    }
+
+    //MARK: Table menu actions (@objc wrappers for UICommand/NSMenuItem)
     
+#if !os(macOS)
+    /// Insert a table with rows/cols from the UICommand propertyList (e.g. [2, 3] for 2 rows × 3 cols).
+    @objc public func insertTableFromMenu(_ sender: UICommand) {
+        guard let dims = sender.propertyList as? [Int], dims.count == 2 else { return }
+        insertTable(rows: dims[0], cols: dims[1])
+    }
+#endif
+    @objc public func addRowBefore() { addRow(.before) }
+    @objc public func addRowAfter() { addRow(.after) }
+    @objc public func addColBefore() { addCol(.before) }
+    @objc public func addColAfter() { addCol(.after) }
+    @objc public func addTableHeader() { addHeader() }
+    @objc public func deleteTableRow() { deleteRow() }
+    @objc public func deleteTableCol() { deleteCol() }
+    @objc public func deleteEntireTable() { deleteTable() }
+    @objc public func borderTableAll() { borderTable(.cell) }
+    @objc public func borderTableOuter() { borderTable(.outer) }
+    @objc public func borderTableHeader() { borderTable(.header) }
+    @objc public func borderTableNone() { borderTable(.none) }
+
     //MARK: Image editing
     
     public func modifyImage(src: String?, alt: String?, handler: (()->Void)?) {
@@ -1029,7 +1623,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
                 args += ", null"
             }
         }
-        evaluateJavaScript("MU.modifyImage(\(args))") { result, error in
+        executeJavaScript("MU.modifyImage(\(args))") { result, error in
             handler?()
         }
     }
@@ -1052,6 +1646,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// where it will show up full size. However, if we have "markup.image" populated, then
     /// we prioritize it for pasting, because it retains the sizing of the original.
     public func pasteableType() -> PasteableType? {
+        #if canImport(UIKit)
         let pasteboard = UIPasteboard.general
         if pasteboard.contains(pasteboardTypes: ["markup.image"]) {
             return .LocalImage
@@ -1070,29 +1665,84 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             // We have a string that we can paste
             return .Text
         }
+        #else
+        let markupImageType = NSPasteboard.PasteboardType("markup.image")
+        let pasteboard = NSPasteboard.general
+        if pasteboard.availableType(from: [markupImageType]) != nil {
+            return .LocalImage
+        } else if pasteboard.availableType(from: [.tiff, .png]) != nil {
+            return .ExternalImage
+        } else if pasteboard.availableType(from: [.URL, .fileURL]) != nil {
+            return .Url
+        } else if pasteboard.availableType(from: [.html]) != nil {
+            return .Html
+        } else if pasteboard.availableType(from: [.rtf]) != nil {
+            return .Rtf
+        } else if pasteboard.availableType(from: [.string]) != nil {
+            return .Text
+        }
+        #endif
         return nil
     }
     
     public func pasteText(_ text: String?, handler: (()->Void)? = nil) {
         guard let text = text, !pastedAsync else { return }
         pastedAsync = true
-        evaluateJavaScript("MU.pasteText('\(text.escaped)')") { result, error in
+        executeJavaScript("MU.pasteText('\(text.escaped)')") { result, error in
             self.pastedAsync = false
             handler?()
         }
     }
-    
+
+    public func pasteCode(_ text: String?, handler: (()->Void)? = nil) {
+        guard let text = text, !pastedAsync else { return }
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        pastedAsync = true
+        executeJavaScript("MU.pasteCode('\(normalized.escaped)')") { result, error in
+            self.pastedAsync = false
+            handler?()
+        }
+    }
+
     public func pasteHtml(_ html: String?, handler: (()->Void)? = nil) {
         guard let html = html, !pastedAsync else { return }
         pastedAsync = true
-        evaluateJavaScript("MU.pasteHTML('\(html.escaped)')") { result, error in
+        executeJavaScript("MU.pasteHTML('\(html.escaped)')") { result, error in
             self.pastedAsync = false
             handler?()
         }
     }
     
-    public func pasteImage(_ image: UIImage?, handler: (()->Void)? = nil) {
-        guard let image = image, let contents = image.pngData(), !pastedAsync else { return }
+    public func pasteHtml(_ html: String?) async {
+        await withCheckedContinuation { continuation in
+            pasteHtml(html) {
+                continuation.resume()
+            }
+        }
+    }
+    
+    public func pasteImage(_ image: PlatformImage?, handler: (()->Void)? = nil) {
+        guard let image = image, !pastedAsync else {
+            handler?()
+            return
+        }
+
+        #if canImport(UIKit)
+        guard let contents = image.pngData() else {
+            handler?()
+            return
+        }
+        #else
+        guard let tiffRepresentation = image.tiffRepresentation,
+              let bitmapImage = NSBitmapImageRep(data: tiffRepresentation),
+              let contents = bitmapImage.representation(using: .png, properties: [:]) else {
+            handler?()
+            return
+        }
+        #endif
+
         // Make a new unique ID for the image to save in the cacheUrl directory
         pastedAsync = true
         var path = "\(UUID().uuidString).png"
@@ -1117,77 +1767,163 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             handler?()
         }
     }
+
+    public func pasteImage(_ image: PlatformImage?) async {
+        await withCheckedContinuation { continuation in
+            pasteImage(image) {
+                continuation.resume()
+            }
+        }
+    }
     
     //MARK: Formatting
     
+    // Required for menu support
     @objc public func bold() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         bold(handler: nil)
     }
     
     public func bold(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleBold()") { result, error in
+        executeJavaScript("MU.toggleBold()") { result, error in
+            if let error { print("ERROR: \(error.localizedDescription)") }
             handler?()
         }
     }
     
+    public func bold() async throws {
+        return executeJavaScript("MU.toggleBold()")
+    }
+    
+    // Required for menu support
     @objc public func italic() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         italic(handler: nil)
     }
     
     public func italic(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleItalic()") { result, error in
+        executeJavaScript("MU.toggleItalic()") { result, error in
             handler?()
         }
     }
     
+    public func italic() async throws {
+        try await executeJavaScript("MU.toggleItalic()")
+    }
+    
+    // Required for menu support
     @objc public func underline() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         underline(handler: nil)
     }
     
     public func underline(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleUnderline()") { result, error in
+        executeJavaScript("MU.toggleUnderline()") { result, error in
             handler?()
         }
     }
     
+    public func underline() async throws {
+        try await executeJavaScript("MU.toggleUnderline()")
+    }
+    
+    // Required for menu support
     @objc public func code() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         code(handler: nil)
     }
     
     public func code(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleCode()") { result, error in
+        executeJavaScript("MU.toggleCode()") { result, error in
             handler?()
         }
     }
 
+    public func code() async throws {
+        try await executeJavaScript("MU.toggleCode()")
+    }
+    
+    // Required for menu support
     @objc public func strike() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         strike(handler: nil)
     }
     
     public func strike(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleStrike()") { result, error in
+        executeJavaScript("MU.toggleStrike()") { result, error in
             handler?()
         }
     }
     
+    public func strike() async throws {
+        try await executeJavaScript("MU.toggleStrike()")
+    }
+    
+    // Required for menu support
     @objc public func subscriptText() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         subscriptText(handler: nil)
     }
     
     public func subscriptText(handler: (()->Void)? = nil) {      // "superscript" is a keyword
-        evaluateJavaScript("MU.toggleSubscript()") { result, error in
+        executeJavaScript("MU.toggleSubscript()") { result, error in
             handler?()
         }
     }
     
+    public func subscriptText() async throws {
+        try await executeJavaScript("MU.toggleSubscript()")
+    }
+    
+    // Required for menu support
     @objc public func superscript() {
+        // This is bit of a hack to avoid doing executeJavaScript for the hotkey
+        // when invoked from Swift when it is handled in the web view itself. This way,
+        // the hotkey shows in the menu, and it works, but the action doesn't happen twice.
+        #if os(macOS) && !targetEnvironment(macCatalyst)
+        guard NSApp.currentEvent?.type != .keyDown else { return }
+        #endif
         superscript(handler: nil)
     }
     
     public func superscript(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleSuperscript()") { result, error in
+        executeJavaScript("MU.toggleSuperscript()") { result, error in
             handler?()
         }
+    }
+    
+    public func superscript() async throws {
+        try await executeJavaScript("MU.toggleSuperscript()")
     }
     
     //MARK: Selection state
@@ -1198,7 +1934,7 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     /// the MarkupMenu and hot-keys. Calls to getSelectionState here only affect the locally cached
     /// selectionState, not the MarkupEditor.selectionState that is reflected in the MarkupToolbar.
     public func getSelectionState(handler: ((SelectionState)->Void)? = nil) {
-        evaluateJavaScript("MU.getSelectionState()") { result, error in
+        executeJavaScript("MU.getSelectionState()") { result, error in
             guard
                 error == nil,
                 let stateString = result as? String,
@@ -1218,6 +1954,14 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
             }
             self.selectionState.reset(from: newSelectionState)
             handler?(newSelectionState)
+        }
+    }
+    
+    public func getSelectionState() async -> SelectionState {
+        await withCheckedContinuation { continuation in
+            getSelectionState() { selectionState in
+                continuation.resume(with: .success(selectionState))
+            }
         }
     }
     
@@ -1258,6 +2002,9 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         selectionState.cols = stateDictionary["cols"] as? Int ?? 0
         selectionState.row = stateDictionary["row"] as? Int ?? 0
         selectionState.col = stateDictionary["col"] as? Int ?? 0
+        // Undo/redo
+        selectionState.canUndo = stateDictionary["canundo"] as? Bool ?? false
+        selectionState.canRedo = stateDictionary["canredo"] as? Bool ?? false
         if let rawValue = stateDictionary["border"] as? String {
             selectionState.border = TableBorder(rawValue: rawValue) ?? .cell
         } else {
@@ -1298,10 +2045,16 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     }
     
     //MARK: Styling
-    
+
+    #if canImport(UIKit)
     @objc public func pStyle(sender: UICommand) {
         replaceStyle(selectionState.style, with: .P)
     }
+    #else
+    @objc public func pStyle() {
+        replaceStyle(selectionState.style, with: .P)
+    }
+    #endif
     
     @objc public func h1Style() {
         replaceStyle(selectionState.style, with: .H1)
@@ -1327,48 +2080,82 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
         replaceStyle(selectionState.style, with: .H6)
     }
     
-    /// Replace the oldStyle of the selection with the newStyle (e.g., from <p> to <h3>)
-    ///
-    /// A null value of oldStyle results in an unstyled element being styled (which really should never happen)
-    public func replaceStyle(_ oldStyle: StyleContext?, with newStyle: StyleContext, handler: (()->Void)? = nil) {
-        var replaceCall = "MU.replaceStyle("
-        if let oldStyle = oldStyle {
-            replaceCall += "'\(oldStyle)', '\(newStyle)')"
-        } else {
-            replaceCall += "null, '\(newStyle)')"
-        }
-        evaluateJavaScript(replaceCall) { result, error in
+    @objc public func preStyle() {
+        replaceStyle(selectionState.style, with: .PRE)
+    }
+    
+    /// Set the selection style to newStyle (e.g., <h3>)
+    public func setStyle(to newStyle: StyleContext, handler: (()->Void)? = nil) {
+        executeJavaScript("MU.setStyle('\(newStyle)')") { result, error in
             handler?()
         }
     }
     
-    /// Indent from the menu or hotkey
-    @objc public func indent() {
+    public func setStyle(to newStyle: StyleContext) async {
+        await withCheckedContinuation { continuation in
+            setStyle(to: newStyle) {
+                continuation.resume()
+            }
+        }
+    }
+    
+    /// Replace the oldStyle of the selection with the newStyle (e.g., from <p> to <h3>)
+    /// Function provided for backward compatibility. Use setStyle.
+    public func replaceStyle(_: StyleContext? = nil, with newStyle: StyleContext, handler: (()->Void)? = nil) {
+        setStyle(to: newStyle, handler: handler)
+    }
+    
+    public func replaceStyle(_: StyleContext? = nil, with newStyle: StyleContext) async {
+        await withCheckedContinuation { continuation in
+            setStyle(to: newStyle) {
+                continuation.resume()
+            }
+        }
+    }
+    
+    // Required for menu support
+    @objc public func indentFromMenu() {
         indent(handler: nil)
     }
-
+    
     /// Indent the selection based on the context.
     ///
     /// If in a list, move list item to the next nested level if appropriate.
     /// Otherwise, increase the quote level by inserting a new blockquote.
     public func indent(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.indent()") { result, error in
+        executeJavaScript("MU.indent()") { result, error in
             handler?()
         }
     }
     
-    /// Outdent from the menu or hotkey
-    @objc public func outdent() {
-        outdent(handler: nil)
+    public func indent() async throws {
+        await withCheckedContinuation { continuation in
+            indent() {
+                continuation.resume()
+            }
+        }
     }
 
+    // Required for menu support
+    @objc public func outdentFromMenu() {
+        outdent(handler: nil)
+    }
+    
     /// Outdent the selection based on the context.
     ///
     /// If in a list, move list item to the previous nested level if appropriate.
     /// Otherwise, decrease the quote level by removing a blockquote if one exists.
     public func outdent(handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.outdent()") { result, error in
+        executeJavaScript("MU.outdent()") { result, error in
             handler?()
+        }
+    }
+    
+    public func outdent() async throws {
+        await withCheckedContinuation { continuation in
+            outdent() {
+                continuation.resume()
+            }
         }
     }
     
@@ -1382,8 +2169,16 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
     
     /// Switch between ordered and unordered list styles.
     public func toggleListItem(type: ListContext, handler: (()->Void)? = nil) {
-        evaluateJavaScript("MU.toggleListItem('\(type.tag)')") { result, error in
+        executeJavaScript("MU.toggleListItem('\(type.tag)')") { result, error in
             handler?()
+        }
+    }
+    
+    public func toggleListItem(type: ListContext) async {
+        await withCheckedContinuation { continuation in
+            toggleListItem(type: type) {
+                continuation.resume()
+            }
         }
     }
     
@@ -1391,33 +2186,34 @@ public class MarkupWKWebView: WKWebView, ObservableObject {
 
 //MARK: UIResponderStandardEditActions overrides
 
+#if canImport(UIKit)
 extension MarkupWKWebView {
-    
+
     /// Replace standard action with the MarkupWKWebView implementation.
     public override func toggleBoldface(_ sender: Any?) {
         bold()
     }
-    
+
     /// Replace standard action with the MarkupWKWebView implementation.
     public override func toggleItalics(_ sender: Any?) {
         italic()
     }
-    
+
     /// Replace standard action with the MarkupWKWebView implementation.
     public override func toggleUnderline(_ sender: Any?) {
         underline()
     }
-    
+
     /// Replace standard action with the MarkupWKWebView implementation.
     public override func increaseSize(_ sender: Any?) {
         // Do nothing
     }
-    
+
     /// Replace standard action with the MarkupWKWebView implementation.
     public override func decreaseSize(_ sender: Any?) {
         // Do nothing
     }
-    
+
     @objc public override func copy(_ sender: Any?) {
         if selectionState.isInImage {
             copyImage(src: selectionState.src!, alt: selectionState.alt, width: selectionState.width, height: selectionState.height)
@@ -1425,10 +2221,10 @@ extension MarkupWKWebView {
             super.copy(sender)
         }
     }
-    
+
     @objc public override func cut(_ sender: Any?) {
         if selectionState.isInImage {
-            evaluateJavaScript("MU.cutImage()") { result, error in }
+            executeJavaScript("MU.cutImage()") { result, error in }
         } else {
             super.cut(sender)
         }
@@ -1446,11 +2242,15 @@ extension MarkupWKWebView {
         case .Text:
             pasteText(pasteboard.string)
         case .Html:
-            if let data = pasteboard.data(forPasteboardType: "public.html") {
+            if selectionState.style == .PRE {
+                pasteCode(pasteboard.string)
+            } else if let data = pasteboard.data(forPasteboardType: "public.html") {
                 pasteHtml(String(data: data, encoding: .utf8))
             }
         case .Rtf:
-            if let rtfData = pasteboard.data(forPasteboardType: "public.rtf") {
+            if selectionState.style == .PRE {
+                pasteCode(pasteboard.string)
+            } else if let rtfData = pasteboard.data(forPasteboardType: "public.rtf") {
                 do {
                     let attrString = try NSAttributedString(
                         data: rtfData,
@@ -1479,6 +2279,160 @@ extension MarkupWKWebView {
         }
     }
     
+    /// Paste the HTML or text only from the clipboard, but in a minimal "unformatted" manner
+    public override func pasteAndMatchStyle(_ sender: Any?) {
+        guard let pasteableType = pasteableType() else { return }
+        let pasteboard = UIPasteboard.general
+        switch pasteableType {
+        case .Text, .Rtf:
+            pasteText(pasteboard.string)
+        case .Html:
+            if let data = pasteboard.data(forPasteboardType: "public.html") {
+                pasteText(String(data: data, encoding: .utf8))
+            }
+        default:
+            break
+        }
+    }
+
+}
+#else
+extension MarkupWKWebView {
+
+    /// Call the superclass (WKWebView) implementation of the given action selector.
+    ///
+    /// On macOS, NSResponder's standard edit actions like copy: and cut: are not declared
+    /// as open methods in Swift, so we can't use `override` and `super`. Instead, we use
+    /// the Objective-C runtime to look up and invoke the superclass implementation directly.
+    private func performSuperAction(_ action: String, with sender: Any?) {
+        let selector = NSSelectorFromString(action)
+        guard let superclass = class_getSuperclass(type(of: self)),
+              let method = class_getInstanceMethod(superclass, selector) else { return }
+        typealias ActionFn = @convention(c) (AnyObject, Selector, Any?) -> Void
+        unsafeBitCast(method_getImplementation(method), to: ActionFn.self)(self, selector, sender)
+    }
+
+    @objc public func copy(_ sender: Any?) {
+        guard selectionState.valid else {
+            performSuperAction("copy:", with: sender)
+            return
+        }
+        if selectionState.isInImage {
+            copyImage(src: selectionState.src!, alt: selectionState.alt, width: selectionState.width, height: selectionState.height)
+        } else {
+            performSuperAction("copy:", with: sender)
+        }
+    }
+
+    @objc public func cut(_ sender: Any?) {
+        guard selectionState.valid else {
+            performSuperAction("cut:", with: sender)
+            return
+        }
+        if selectionState.isInImage {
+            executeJavaScript("MU.cutImage()") { result, error in }
+        } else {
+            performSuperAction("cut:", with: sender)
+        }
+    }
+
+    /// Invoke the paste method in the editor directly, passing the clipboard contents
+    /// that would otherwise be obtained via the JavaScript event.
+    ///
+    /// Customize the type of paste operation on the JavaScript side based on the type
+    /// of data available in NSPasteboard.general.
+    @objc public func paste(_ sender: Any?) {
+        guard selectionState.valid else {
+            performSuperAction("paste:", with: sender)
+            return
+        }
+        guard let pasteableType = pasteableType() else { return }
+        let markupImageType = NSPasteboard.PasteboardType("markup.image")
+        let pasteboard = NSPasteboard.general
+        switch pasteableType {
+        case .Text:
+            // Matches the .Html/.Rtf cases below: a code_block selection routes to
+            // pasteCode, not pasteText. Without this check, a clipboard with only a
+            // plain-text flavor (no HTML/RTF, e.g. from a plain-text-only source app)
+            // pasting into a code block would go through pasteText's HTML-parsing
+            // path instead of pasteCode's raw insertText, the same class of bug as
+            // pasteText losing bare newlines outside code blocks.
+            if selectionState.style == .PRE, let text = pasteboard.string(forType: .string) {
+                pasteCode(text)
+            } else if let text = pasteboard.string(forType: .string) {
+                pasteText(text)
+            }
+        case .Html:
+            if selectionState.style == .PRE, let text = pasteboard.string(forType: .string) {
+                pasteCode(text)
+            } else if let html = pasteboard.string(forType: .html) {
+                pasteHtml(html)
+            }
+        case .Rtf:
+            if selectionState.style == .PRE, let text = pasteboard.string(forType: .string) {
+                pasteCode(text)
+            } else if let rtfData = pasteboard.data(forType: .rtf) {
+                do {
+                    let attrString = try NSAttributedString(
+                        data: rtfData,
+                        options: [.documentType: NSAttributedString.DocumentType.rtf],
+                        documentAttributes: nil)
+                    let htmlData = try attrString.data(
+                        from: NSRange(location: 0, length: attrString.length),
+                        documentAttributes: [.documentType: NSAttributedString.DocumentType.html])
+                    let html = String(data: htmlData, encoding: .utf8)
+                    pasteHtml(html)
+                } catch let error {
+                    Logger.webview.error("Error getting html from rtf: \(error.localizedDescription)")
+                }
+            }
+        case .ExternalImage:
+            if let tiffData = pasteboard.data(forType: .tiff) ?? pasteboard.data(forType: .png) {
+                if let nsImage = NSImage(data: tiffData) {
+                    pasteImage(nsImage)
+                }
+            }
+        case .LocalImage:
+            if let data = pasteboard.data(forType: markupImageType) {
+                pasteHtml(String(data: data, encoding: .utf8))
+            }
+        case .Url:
+            if let urlString = pasteboard.string(forType: .URL) ?? pasteboard.string(forType: .fileURL),
+               let url = URL(string: urlString) {
+                pasteUrl(url: url)
+            }
+        }
+    }
+
+    /// Paste the HTML or text only from the clipboard, but in a minimal "unformatted" manner
+    @objc public func pasteAsPlainText(_ sender: Any?) {
+        guard selectionState.valid else {
+            performSuperAction("pasteAsPlainText:", with: sender)
+            return
+        }
+        guard let pasteableType = pasteableType() else { return }
+        let pasteboard = NSPasteboard.general
+        switch pasteableType {
+        case .Text, .Rtf:
+            if let text = pasteboard.string(forType: .string) {
+                pasteText(text)
+            }
+        case .Html:
+            if let html = pasteboard.string(forType: .html) {
+                pasteText(html)
+            }
+        default:
+            break
+        }
+    }
+
+}
+#endif
+
+//MARK: Paste helpers
+
+extension MarkupWKWebView {
+
     /// Paste the url as an img or as a link depending on its content.
     ///
     /// This method is public so it can be used from tests and the tests can ensure the
@@ -1499,7 +2453,7 @@ extension MarkupWKWebView {
             }
         }
     }
-    
+
     /// Return true if the url points to an image or movie that can be inserted into the document
     private func isImageUrl(url: URL?) -> Bool {
         guard let url else { return false }
@@ -1509,7 +2463,7 @@ extension MarkupWKWebView {
             return isRemoteImage(url: url)
         }
     }
-    
+
     /// Return true if the url points to an image in a local file.
     ///
     /// We can use `resourceValues(forKeys:)` on local files, whereas we have to infer whether the file is an image
@@ -1523,33 +2477,57 @@ extension MarkupWKWebView {
             return false
         }
     }
-    
+
     /// Return true if the url points to a remote image file, based only on the file extension.
     private func isRemoteImage(url: URL) -> Bool {
         guard let utType = UTType(tag: url.pathExtension, tagClass: .filenameExtension, conformingTo: nil) else { return false }
         return utType.conforms(to: .image) || utType.conforms(to: .movie)
     }
-    
-    /// Paste the HTML or text only from the clipboard, but in a minimal "unformatted" manner
-    public override func pasteAndMatchStyle(_ sender: Any?) {
-        guard let pasteableType = pasteableType() else { return }
-        let pasteboard = UIPasteboard.general
-        switch pasteableType {
-        case .Text, .Rtf:
-            pasteText(pasteboard.string)
-        case .Html:
-            if let data = pasteboard.data(forPasteboardType: "public.html") {
-                pasteText(String(data: data, encoding: .utf8))
-            }
+
+}
+
+//MARK: Zoom support (macOS and Mac Catalyst)
+
+#if os(macOS) || targetEnvironment(macCatalyst)
+extension MarkupWKWebView {
+
+    private static let zoomStep: CGFloat = 0.1
+
+    @objc public func zoomIn(_ sender: Any?) {
+        pageZoom += Self.zoomStep
+    }
+
+    @objc public func zoomOut(_ sender: Any?) {
+        pageZoom = max(Self.zoomStep, pageZoom - Self.zoomStep)
+    }
+
+    @objc public func zoomToActualSize(_ sender: Any?) {
+        pageZoom = 1.0
+    }
+}
+#endif
+
+//MARK: Menu validation (macOS)
+
+#if os(macOS)
+extension MarkupWKWebView: NSMenuItemValidation {
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(undoFromMenu(_:)):
+            return selectionState.canUndo
+        case #selector(redoFromMenu(_:)):
+            return selectionState.canRedo
         default:
-            break
+            return true
         }
     }
-    
 }
+#endif
 
 //MARK: Drop support
 
+#if canImport(UIKit)
 extension MarkupWKWebView: UIDropInteractionDelegate {
     
     /// Delegate the handling decision for DropInteraction to the markupDelegate.
@@ -1566,14 +2544,17 @@ extension MarkupWKWebView: UIDropInteractionDelegate {
     public func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         markupDelegate?.markupDropInteraction(interaction, performDrop: session)
     }
-    
+
 }
+#endif
 
 //MARK: Popover support
 
+#if canImport(UIKit)
 extension MarkupWKWebView: UIPopoverPresentationControllerDelegate {
-    
+
     public func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
         .none
     }
 }
+#endif

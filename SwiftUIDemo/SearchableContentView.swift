@@ -5,7 +5,10 @@
 //  Created by Steven Harris on 10/6/23.
 //
 
+#if !os(macOS)
+
 import SwiftUI
+import UniformTypeIdentifiers
 import MarkupEditor
 
 /// Similar to DemoContentView, but with a SearchBar at the top to demo search functionality.
@@ -31,7 +34,13 @@ struct SearchableContentView: View {
                 .padding(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             MarkupEditorView(markupDelegate: self, html: $demoHtml, id: "Document")
         }
-        .pick(isPresented: $selectImage.value, documentTypes: MarkupEditor.supportedImageTypes, onPicked: imageSelected(url:), onCancel: nil)
+        .fileImporter(isPresented: $selectImage.value, allowedContentTypes: MarkupEditor.supportedImageTypes, allowsMultipleSelection: false) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                imageSelected(url: url)
+            }
+        }
         .onDisappear { MarkupEditor.selectedWebView = nil }
     }
     
@@ -68,3 +77,5 @@ extension SearchableContentView: MarkupDelegate {
 
 
 }
+
+#endif
